@@ -151,6 +151,4 @@ And, of course, the use of archival locale names allows for rollback of deployme
 
 ### Deploying media
 
-Media is included in the deployment process. New attachments and new crops of existing attachments are "pushed out" as part of that process. Due to the nature of Apostrophe's attachment system, there is no need to remove content no longer in use, or to roll anything back if media is removed from use. This is because attachments are immutable and are named with unguessable identifiers.
-
-An issue does come into play if the list of available image sizes has been changed between deployments. To address this, an MD5 hash of the `sizes` configuration in use is stored with each attachment. If it does not match after deployment for an image attachment, the attachment's scaled versions are regenerated.
+Media is included in the deployment process. New attachments are "pushed out" as part of the sync process. Attachment status/permissions changes (e.g. the document they are a part of is now in the trash) are also pushed. And if the list of available image sizes has been changed between deployments, an MD5 hash of the `sizes` configuration in use is used to detect this situation. If it does not match after deployment for an image attachment, the attachment's scaled versions are regenerated.
