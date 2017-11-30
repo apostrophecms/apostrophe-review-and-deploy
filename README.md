@@ -24,13 +24,11 @@ modules: {
 
 Once the module is enabled, a "Review" button will appear in the admin bar.
 
-Click "Review," then "Add Review." The review will automatically be given a reasonable title, but you may edit it further.
+*Currently only sitewide admins may initiate, complete and deploy content via reviews. TODO: add more nuance, but keep in mind the implications of being able to push an entire locale live to production.*
 
-If your site is configured for multiple locales via `apostrophe-workflow`, you will need to choose a locale for this review.
+As a sitewide admin, click "Reviews," then "Add Review." Give the review a title, such as "September review of en locale."
 
-You can also assign users and groups who are allowed to **contribute to the review** via the "Permissions" tab. If you do not do so, only the creator of the review and site-wide admins are able to do so. These users and groups must also have the "Edit Site Reviews" permission, which can be granted via the "Groups" admin bar button.
-
-> If you do not have such a button you can add the permission via the `groups` option of the `apostrophe-users` module. However consider commenting that option out as you are probably working at a scale where being able to manage groups through the admin bar makes more sense.
+Choose a locale to be reviewed. If you are using `apostrophe-workflow` for workflow only, then there will only be one option. If your site is configured for multiple locales via `apostrophe-workflow`, you will need to choose a locale for this review.
 
 Click "Save" to begin the review.
 
@@ -42,7 +40,7 @@ As a compromise between strictness and productivity, approving a page approves a
 
 As users approve documents, they will automatically progress through the site. The review process begins with pages, then cycles through pieces not already approved. For instance, older blog articles not currently appearing on page one of your site's blog will not be implicitly approved with the page, so they will be reviewed individually.
 
-**Review progresses through piece types in the order they were configured, with two exceptions: images and files are reviewed last.** To change this order, use the following option:
+**Review progresses through piece types in the order they were configured, with two exceptions: images, files and the global doc are reviewed last.** To change this order, use the following option:
 
 ```javascript
 // in app.js
@@ -54,7 +52,7 @@ modules: {
 }
 ```
 
-**The strings configured for `approvalOrder` must match the `name` option of the piece type in question.** They are *not* module names.
+**The strings configured for `approvalOrder` must match the `name` option of the piece type in question.** They are *not* module names. Anything not mentioned in `approvalOrder` is reviewed *last*.
 
 **If a piece appears on the "show" page for another piece via a widget or join, it is implicitly approved too.** You can take advantage of `approvalOrder` to maximize the chances of this happening.
 

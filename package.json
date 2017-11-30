@@ -18,5 +18,8 @@
   "bugs": {
     "url": "https://github.com/punkave/apostrophe-site-review/issues"
   },
-  "homepage": "https://github.com/punkave/apostrophe-site-review#readme"
+  "homepage": "https://github.com/punkave/apostrophe-site-review#readme",
+  "dependencies": {
+    "lodash": "^4.17.4"
+  }
 }
