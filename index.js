@@ -24,6 +24,7 @@ module.exports = {
     if (!workflow) {
       throw new Error('The apostrophe-workflow module must be configured before the apostrophe-site-review module.');
     }
+
     options.addFields = [
       {
         type: 'string',
@@ -59,6 +60,7 @@ module.exports = {
         def: 'In Progress'
       }
     ].concat(options.addFields || []);
+
     options.removeFields = [ 'tags', 'published', 'siteMapPriority' ];
     options.arrangeFields = [
       {
@@ -74,7 +76,10 @@ module.exports = {
       },
       {
         name: 'status',
-        label: 'Status'
+        label: 'Status',
+        partial: function(value) {
+          return self.partial('manageStatus', { value: value });
+        }
       }
     ].concat(options.addColumns || []);
     options.addFilters = [
@@ -84,6 +89,7 @@ module.exports = {
     ].concat(options.addFilters || []);
     options.removeColumns = [ 'published' ].concat(options.removeColumns || []);
     options.removeFilters = [ 'published' ].concat(options.removeFilters || []);
+
   },
   
   afterConstruct: function(self) {
@@ -387,14 +393,14 @@ module.exports = {
       }
     };
 
-    // Returns promise that resolves when the locale stored in the
-    // given gzipped BSON file has been restored. 
+    // Returns promise that resolves when the content stored in the
+    // given gzipped BSON file has been restored.
     //
     // To minimize the possibility of users seeing partial or
     // inconsistent data, the content is initially loaded as
     // `localename-importing`, then the locale name is
     // switched to the actual locale name after archiving
-    // the previous content as follows:
+    // the previous content of that locale as follows:
     //
     // Any previous content for that locale is moved to the locale
     // `localename-rollback-0`, with content for any previous locale
@@ -589,6 +595,6 @@ module.exports = {
       }
 
     };
-  
+
   }
 };

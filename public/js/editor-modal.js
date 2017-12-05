@@ -8,6 +8,11 @@ apos.define('apostrophe-site-review-editor-modal', {
       var workflow = apos.modules['apostrophe-workflow'];
       // This is enforced server-side, here it is just for aesthetics
       piece.locale = workflow.locale.replace(/\-draft$/, '');
+      if (piece.status === 'Ready to Deploy') {
+        self.$controls.find('[data-apos-deploy]').show();
+      } else {
+        self.$controls.find('[data-apos-deploy]').hide();
+      }
       return setImmediate(callback);
     };
     self.displayResponse = function(result, callback) {
