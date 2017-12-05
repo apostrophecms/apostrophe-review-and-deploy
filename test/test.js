@@ -3,6 +3,8 @@ var assert = require('assert');
 describe('apostrophe-site-review', function() {
 
   var apos;
+  var apos2;
+  var exported;
 
   this.timeout(5000);
 
@@ -59,17 +61,26 @@ describe('apostrophe-site-review', function() {
     });
   });
 
-  // TODO write test of new export method, create import method,
-  // don't forget attachment transport, etc.
-
   it('should export a locale on request', function() {
     var req = apos.tasks.getReq({ locale: 'fr' });
-    return apos.modules['apostrophe-site-review'].export(req)
+    return apos.modules['apostrophe-site-review'].exportLocale(req)
     .then(function(filename) {
       assert(filename);
       var fs = require('fs');
       assert(fs.existsSync(filename));
-      console.log(filename);
+      exported = filename;
+    });
+  });
+
+  it('should import a locale on request', function() {
+    // import to different locale name for test purposes
+    var req = apos.tasks.getReq({ locale: 'frimporttest' });
+    return apos.modules['apostrophe-site-review'].importLocale(req, exported)
+    .then(function() {
+      return apos.docs.db.count({ workflowLocale: 'frimporttest' })
+      .then(function(n) {
+        assert(n > 0);
+      });
     });
   });
 });

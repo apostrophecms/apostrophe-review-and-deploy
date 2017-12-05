@@ -5,12 +5,15 @@ var bson = new BSON();
 var fs = require('fs');
 var Promise = require('bluebird');
 var zlib = require('zlib');
+var cuid = require('cuid');
 
 module.exports = {
   extend: 'apostrophe-pieces',
   name: 'apostrophe-site-review',
   label: 'Review',
   adminOnly: true,
+  batchSize: 200,
+  rollback: 5,
   moogBundle: {
     modules: [ 'apostrophe-site-review-workflow' ],
     directory: 'lib/modules'
@@ -332,10 +335,11 @@ module.exports = {
     };
 
     // Returns promise that resolves to the name of a gzipped BSON file.
-    // Removing that file is your responsibility.
+    // Removing that file is your responsibility. The locale exported
+    // is the live version of the one specified by `req.locale`.
+    // Permissions are not checked.
     
-    self.export = function(req) {
-      var batchSize = 200;
+    self.exportLocale = function(req) {
       var locale = workflow.liveify(req.locale);
       var out = zlib.createGzip();
       var fileOut;
@@ -348,6 +352,8 @@ module.exports = {
       return self.apos.docs.db.find({ workflowLocale: locale }, { _id: 1 }).toArray()
       .then(function(docs) {
         ids = _.map(docs, '_id');
+        // Metadata
+        out.write(bson.serialize({ version: 1, ids: ids }));
         return writeUntilExhausted();
       })
       .then(function() {
@@ -358,7 +364,7 @@ module.exports = {
       });
 
       function writeUntilExhausted() {
-        var batch = ids.slice(offset, batchSize);
+        var batch = ids.slice(offset, self.options.batchSize);
         if (!batch.length) {
           return;
         }
@@ -373,12 +379,215 @@ module.exports = {
           });
         })
         .then(function() {
-          offset += batchSize;
+          offset += self.options.batchSize;
           if (offset < ids.length) {
             return writeUntilExhausted();
           }
         });
       }
+    };
+
+    // Returns promise that resolves when the locale stored in the
+    // given gzipped BSON file has been restored. 
+    //
+    // To minimize the possibility of users seeing partial or
+    // inconsistent data, the content is initially loaded as
+    // `localename-importing`, then the locale name is
+    // switched to the actual locale name after archiving
+    // the previous content as follows:
+    //
+    // Any previous content for that locale is moved to the locale
+    // `localename-rollback-0`, with content for any previous locale
+    // `localename-rollback-n` moved to `localename-rollback-n+1`, discarding
+    // content where n is >= `self.options.rollback`.
+    //
+    // Content is imported to the live version of `req.locale`, regardless of
+    // the original locale in the BSON data.
+    //
+    // Permissions are not checked.
+    
+    self.importLocale = function(req, filename) {
+      var locale = workflow.liveify(req.locale);
+      var zin = zlib.createGunzip();
+      var fileIn;
+      var ids;
+      var idsToNew = {};
+      var version;
+      fileIn = fs.createReadStream(filename);
+      fileIn.pipe(zin);
+
+      // read the file, import to temporary locale
+      var reader = Promise.promisify(require('read-async-bson'));
+      return reader(
+        { from: zin },
+        function(doc, callback) {
+          if (!version) {
+            // first object is metadata
+            version = doc.version;
+            if (typeof(version) !== 'number') {
+              return callback(new Error('The first BSON object in the file must contain version and ids properties'));
+            }
+            if (version < 1) {
+              return callback(new Error('Invalid version number'));
+            }
+            if (version > 1) {
+              return callback(new Error('This file came from a newer version of apostrophe-site-review, I don\'t know how to read it'));
+            }
+            ids = doc.ids;
+            if (!Array.isArray(ids)) {
+              return callback(new Error('The first BSON object in the file must contain version and ids properties'));
+            }
+            _.each(ids, function(id) {
+              idsToNew[id] = cuid();
+            });
+            return callback(null);
+          } else {
+            // Iterator, invoked once per doc
+            doc.workflowLocale = locale + '-importing';
+            if (doc.workflowLocaleForPathIndex) {
+              doc.workflowLocaleForPathIndex = doc.workflowLocale;
+            }
+            replaceIdsRecursively(doc);
+            
+            return self.apos.docs.db.insert(doc, callback);
+          }
+        }
+      )
+      .then(function() {
+        // Rename locale-rollback-0 to locale-rollback-1, etc.
+        var n = 0;
+        return archiveNext();
+        function archiveNext() {
+          if (n >= self.options.rollback) {
+            return;
+          }
+          return self.apos.docs.db.update(
+            {
+              workflowLocaleForPathIndex: locale + '-rollback-' + n
+            }, {
+              $set: {
+                workflowLocaleForPathIndex: locale + '-rollback-' + (n + 1)
+              }
+            },
+            {
+              multi: true
+            }
+          )
+          .then(function() {
+            return self.apos.docs.db.update(
+              {
+                workflowLocale: locale + '-rollback-' + n
+              }, {
+                $set: {
+                  workflowLocale: locale + '-rollback-' + (n + 1)
+                }
+              },
+              {
+                multi: true
+              }
+            );
+          })
+          .then(function() {
+            n++;
+            return archiveNext();
+          });
+        }
+      })
+      .then(function() {
+        // Purge stuff we no longer keep for rollback.
+        //
+        // In theory `rollback` could have been a really big number once
+        // and set smaller later. In practice set a reasonable bound
+        // so this is a single, fast call.
+        var locales = _.map(_.range(self.options.rollback, 100), function(i) {
+          return locale + '-rollback-' + i
+        });
+        return self.apos.docs.db.remove({
+          workflowLocale: { $in: locales }
+        });
+      })
+      .then(function() {
+        // Showtime. This has to be as fast as possible.
+        //
+        // If we're keeping old deployments for rollback,
+        // rename the currently live locale to localename-rollback-0,
+        // otherwise discard it
+        if (self.options.rollback) {
+          return self.apos.docs.db.update({
+            workflowLocale: locale
+          },
+          {
+            $set: {
+              workflowLocale: locale + '-rollback-0'
+            }
+          }, {
+            multi: true
+          })
+          .then(function() {
+            // workflowLocaleForPathIndex is a separate property, not always present,
+            // so we are stuck with a second call
+            return self.apos.docs.db.update({
+              workflowLocaleForPathIndex: locale
+            },
+            {
+              $set: {
+                workflowLocaleForPathIndex: locale + '-rollback-0'
+              }
+            }, {
+              multi: true
+            })
+          });
+        } else {
+          return self.apos.docs.remove({
+            workflowLocale: locale
+          });
+        }
+      })
+      .then(function() {
+        // Showtime, part 2.
+        //
+        // rename the temporary locale to be the live locale.
+        // Do workflowLocaleForPathIndex first to minimize
+        // possible inconsistent time
+        return self.apos.docs.db.update({
+          workflowLocaleForPathIndex: locale + '-importing'
+        }, {
+          $set: {
+            workflowLocaleForPathIndex: locale
+          }
+        }, {
+          multi: true
+        });
+      })
+      .then(function() {
+        return self.apos.docs.db.update({
+          workflowLocale: locale + '-importing'
+        }, {
+          $set: {
+            workflowLocale: locale
+          }
+        }, {
+          multi: true
+        });
+      });
+
+      // Recursively replace all occurrences of the ids in this locale
+      // found in the given doc with their new ids per `idsToNew`. This prevents
+      // _id conflicts on insert, even though old data is still in the database
+      // under other locale names
+
+      function replaceIdsRecursively(doc) {
+        _.each(doc, function(val, key) {
+          if ((typeof(val) === 'string') && (val.length < 100)) {
+            if (idsToNew[val]) {
+              doc[key] = idsToNew[val];
+            }
+          } else if (val && (typeof(val) === 'object')) {
+            replaceIdsRecursively(val);
+          }
+        });
+      }
+
     };
   
   }

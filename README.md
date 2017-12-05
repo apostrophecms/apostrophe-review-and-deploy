@@ -147,6 +147,12 @@ An additional benefit is that if a deployment fails, there is no impact on end u
 
 And, of course, the use of archival locale names allows for rollback of deployments.
 
+### `_id` conflicts
+
+All of this sounds good, but the `_id` property is still a problem. `_id` must always be unique, even between locales (a fundamental rule of MongoDB), and the incoming `_id` properties will conflict with the existing ones. It is impossible to change the `_id` of an existing document in MongoDB.
+
+Our solution: **change _id before inserting the new documents.** This avoids the conflict, but requires that we resolve and change every _id in all joins, which adds complexity. On the plus side, it can be done entirely during the insert process using synchronous logic previously written, which means it doesn't add much runtime, and it is then already in place before the locales are switched to make the new documents live. However **Any references to the document from documents in other locales, or from documents independent of workflow, will fail.** Currently there is no UI in Apostrophe that would encourage the creation of either of these situations.
+
 ### Deploying media
 
 Media is included in the deployment process. New attachments are "pushed out" as part of the sync process. Attachment status/permissions changes (e.g. the document they are a part of is now in the trash) are also pushed. And if the list of available image sizes has been changed between deployments, an MD5 hash of the `sizes` configuration in use is used to detect this situation. If it does not match after deployment for an image attachment, the attachment's scaled versions are regenerated.
