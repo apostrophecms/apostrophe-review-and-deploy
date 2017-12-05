@@ -1,6 +1,10 @@
 var _ = require('lodash');
 var async = require('async');
-var bson = require('BSON')();
+var BSON = require('bson');
+var bson = new BSON();
+var fs = require('fs');
+var Promise = require('bluebird');
+var zlib = require('zlib');
 
 module.exports = {
   extend: 'apostrophe-pieces',
@@ -86,7 +90,7 @@ module.exports = {
   },
 
   construct: function(self, options) {
-    var workflow = options.apos.modules['apostrophe-workflow'];
+    var workflow = self.apos.modules['apostrophe-workflow'];
     self.excludeFromWorkflow = function() {
       workflow.excludeTypes.push(self.name);
     };
@@ -327,22 +331,27 @@ module.exports = {
       return object;
     };
 
+    // Returns promise that resolves to the name of a gzipped BSON file.
+    // Removing that file is your responsibility.
+    
     self.export = function(req) {
       var batchSize = 200;
-      var locale = workflow.localize(req.locale);
-      var filename = self.apos.rootDir + '/data/' + locale + '-' + self.apos.utils.generateId();
+      var locale = workflow.liveify(req.locale);
+      var out = zlib.createGzip();
+      var fileOut;
+      var filename = self.apos.rootDir + '/data/' + locale + '-' + self.apos.utils.generateId() + '.bson.gz';
       var out;
       var offset = 0;
-      return Promise.promisify(fs.createWriteStream)(filename, 'w')
-      .then(function(_out) {
-        out = _out;
-        return self.apos.docs.db.find({ workflowLocale: locale }, { _id: 1 })
-      })
-      .then(function(ids) {
+      var ids;
+      fileOut = fs.createWriteStream(filename);
+      out.pipe(fileOut);
+      return self.apos.docs.db.find({ workflowLocale: locale }, { _id: 1 }).toArray()
+      .then(function(docs) {
+        ids = _.map(docs, '_id');
         return writeUntilExhausted();
       })
-      .then(function(ids) {
-        return Promise.promisify(out.end)();
+      .then(function() {
+        return Promise.promisify(out.end, { context: out })();
       })
       .then(function() {
         return filename;
@@ -360,7 +369,7 @@ module.exports = {
         .toArray()
         .then(function(docs) {
           docs.forEach(function(doc) {
-            fs.write(bson.serialize(doc));
+            out.write(bson.serialize(doc));
           });
         })
         .then(function() {

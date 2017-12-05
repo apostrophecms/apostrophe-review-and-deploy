@@ -62,4 +62,14 @@ describe('apostrophe-site-review', function() {
   // TODO write test of new export method, create import method,
   // don't forget attachment transport, etc.
 
+  it('should export a locale on request', function() {
+    var req = apos.tasks.getReq({ locale: 'fr' });
+    return apos.modules['apostrophe-site-review'].export(req)
+    .then(function(filename) {
+      assert(filename);
+      var fs = require('fs');
+      assert(fs.existsSync(filename));
+      console.log(filename);
+    });
+  });
 });
