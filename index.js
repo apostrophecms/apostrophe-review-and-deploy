@@ -1,11 +1,16 @@
 var _ = require('lodash');
 var async = require('async');
+var bson = require('BSON')();
 
 module.exports = {
   extend: 'apostrophe-pieces',
-  name: 'apostrophe-review',
+  name: 'apostrophe-site-review',
   label: 'Review',
   adminOnly: true,
+  moogBundle: {
+    modules: [ 'apostrophe-site-review-workflow' ],
+    directory: 'lib/modules'
+  },
 
   beforeConstruct: function(self, options) {
     var workflow = options.apos.modules['apostrophe-workflow'];
@@ -65,6 +70,11 @@ module.exports = {
         label: 'Status'
       }
     ].concat(options.addColumns || []);
+    options.addFilters = [
+      {
+        name: 'status'
+      }
+    ].concat(options.addFilters || []);
     options.removeColumns = [ 'published' ].concat(options.removeColumns || []);
     options.removeFilters = [ 'published' ].concat(options.removeFilters || []);
   },
@@ -89,25 +99,22 @@ module.exports = {
 
     var superPageBeforeSend = self.pageBeforeSend;
     self.pageBeforeSend = function(req, callback) {
-      try {
-        // pieces have a default pageBeforeSend,
-        // which still needs to be invoked
-        superPageBeforeSend(req);
-      } catch (e) {
-        return callback(e);
-      }
       if (!req.user) {
-        return next();
+        superPageBeforeSend(req);
+        return callback(null);
       }
       return self.getActiveReview(req)
       .then(function(review) {
         req.data.siteReview = req.data.siteReview || {};
         req.data.siteReview.review = review;
+        req.data.siteReview.contextDoc = req.data.piece || req.data.page;
         if (req.data.piece) {
           req.data.siteReview.unreviewed = (req.data.piece.siteReviewApproved === null);
         } else if (req.data.page) {
           req.data.siteReview.unreviewed = (req.data.page.siteReviewApproved === null);
         }
+        // Call this late so that getCreateSingletonOptions can see the above data
+        superPageBeforeSend(req);
         return callback(null);
       })
       .catch(function(err) {
@@ -128,16 +135,18 @@ module.exports = {
 
       self.route('post', 'approve', self.requireAdmin, function(req, res) {
         // TODO if we lower the bar for this from self.requireAdmin, then we'll
-        // need to check the permissions properly on the doc
+        // need to check the permissions properly on the docs
         return self.apos.docs.db.update({
-          workflowGuid: self.apos.launder.id(req.body.workflowGuid),
-          workflowLocale: self.liveify(req.locale),
+          _id: { $in: self.apos.launder.ids(req.body.ids) },
+          siteReviewApproved: { $exists: 1 }
         }, {
           $set: {
             siteReviewApproved: true
           }
+        }, {
+          multi: true
         })
-        .then(function() {
+        .then(function(result) {
           return self.getNextDoc(req);
         })
         .then(function(next) {
@@ -153,12 +162,13 @@ module.exports = {
         })
         .then(function(doc) {
           if (doc.type === self.name) {
-            return res.send({ status: 'ended' });
+            return res.send({ status: 'Ready to Deploy' });
           } else {
-            return res.send({ status: 'ok', next: _.pick(next, 'title', '_id', '_url') });
+            return res.send({ status: 'ok', next: _.pick(doc, 'title', '_id', '_url') });
           }
         })
         .catch(function(err) {
+          console.error('in catch clause', err);
           if (err) {
             console.error(err);
           }
@@ -170,7 +180,7 @@ module.exports = {
         return self.getActiveReview(req)
         .then(function(review) {
           review.status = 'Failed';
-          review.rejectedWorkflowGuid = self.apos.launder.id(req.body.workflowGuid);
+          review.rejectedId = self.apos.launder.id(req.body._id);
           return self.update(req, review);
         })
         .then(function() {
@@ -183,15 +193,23 @@ module.exports = {
       });
     };
 
-    self.getNextDoc = function(req) {
-      return self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).joins(false).areas(false).log(true).toObject()
+    // Returns a promise for the next doc ready for review. If `options.notIds` is
+    // present, docs whose ids are in that array are skipped.
+    self.getNextDoc = function(req, options) {
+      var cursor = self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).joins(false).areas(false);
+      var nextOptions;
+      if (options && options.notIds) {
+        cursor.and({ _id: { $nin: options.notIds }});
+      }
+      return cursor.toObject()
       .then(function(doc) {
         if (!doc) {
           return null;
         }
         if (!doc._url) {
-          // TODO implement
-          doc._url = self.action + '/review-orphan-type?_id=' + doc._id;
+          // Skip anything without a URL
+          nextOptions = _.assign({}, options || {}, { notIds: (options.notIds || []).concat([ doc._id ]) });
+          return self.getNextDoc(req, nextOptions);
         }
         return doc;
       });
@@ -201,18 +219,18 @@ module.exports = {
       return self.find(req, { status: 'In Progress' }).toObject();
     };
 
-    // If a new review is created for a given locale, any review previously in
-    // progress is considered to have failed. TODO: warn in this situation.
+    // If a new review is created for a given locale, any review previously "In
+    // Progress" or "Ready to Deploy" is now "Superseded."
 
     self.beforeInsert = function(req, piece, options, callback) {
       piece.locale = workflow.liveify(req.locale);
       return self.apos.docs.db.update({
         type: self.name,
         locale: req.locale,
-        status: 'In Progress'
+        status: { $in: [ 'In Progress', 'Ready to Deploy' ] }
       }, {
         $set: {
-          status: 'Failed'
+          status: 'Superseded'
         }
       }, callback);
     };
@@ -298,6 +316,60 @@ module.exports = {
     self.pushAssets = function() {
       superPushAssets();
       self.pushAsset('stylesheet', 'user', { when: 'user' });
+    };
+
+    var superGetCreateSingletonOptions = self.getCreateSingletonOptions;
+    self.getCreateSingletonOptions = function(req) {
+      var object = _.assign(superGetCreateSingletonOptions(req), {
+        contextId: req.data.siteReview && req.data.siteReview.contextDoc && req.data.siteReview.contextDoc._id,
+        reviewing: !!(req.data.siteReview && req.data.siteReview.review)
+      });
+      return object;
+    };
+
+    self.export = function(req) {
+      var batchSize = 200;
+      var locale = workflow.localize(req.locale);
+      var filename = self.apos.rootDir + '/data/' + locale + '-' + self.apos.utils.generateId();
+      var out;
+      var offset = 0;
+      return Promise.promisify(fs.createWriteStream)(filename, 'w')
+      .then(function(_out) {
+        out = _out;
+        return self.apos.docs.db.find({ workflowLocale: locale }, { _id: 1 })
+      })
+      .then(function(ids) {
+        return writeUntilExhausted();
+      })
+      .then(function(ids) {
+        return Promise.promisify(out.end)();
+      })
+      .then(function() {
+        return filename;
+      });
+
+      function writeUntilExhausted() {
+        var batch = ids.slice(offset, batchSize);
+        if (!batch.length) {
+          return;
+        }
+        return self.apos.docs.db.find({
+          workflowLocale: locale,
+          _id: { $in: batch }
+        })
+        .toArray()
+        .then(function(docs) {
+          docs.forEach(function(doc) {
+            fs.write(bson.serialize(doc));
+          });
+        })
+        .then(function() {
+          offset += batchSize;
+          if (offset < ids.length) {
+            return writeUntilExhausted();
+          }
+        });
+      }
     };
   
   }

@@ -137,7 +137,7 @@ This will trigger an API request to the receiving site asking it to remove the c
 
 This module is implemented in such a way that users never see a mix of old and new content, not even in the middle of the deployment, to the extent this is possible with MongoDB.
 
-Specifically, the new content is inserted using a special temporary locale settings that prevent it from appearing at first. When the content has been completely updated, the old content's locale settings are "flipped" to an archival local name, and the new content's locale settings are set to the live locale name.
+Specifically, the new content is inserted using a special temporary locale setting that prevents it from appearing at first. When the content has been completely updated, the old content's locale settings are "flipped" to an archival local name, and the new content's locale settings are set to the live locale name.
 
 The only race condition possible is during the update operations to change the locale name. This is a single MongoDB operation and should be very fast, but could take a few seconds on sites with thousands of documents.
 

@@ -20,6 +20,10 @@
   },
   "homepage": "https://github.com/punkave/apostrophe-site-review#readme",
   "dependencies": {
+    "bson": "^1.0.4",
     "lodash": "^4.17.4"
+  },
+  "devDependencies": {
+    "apostrophe-workflow": "^2.5.0"
   }
 }

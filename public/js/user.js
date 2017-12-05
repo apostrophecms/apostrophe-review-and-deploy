@@ -1,16 +1,40 @@
 apos.define('apostrophe-site-review', {
+  extend: 'apostrophe-pieces',
+  afterConstruct: function(self) {
+    self.enableClickHandlers();
+    self.enableReviewingClass();
+  },
   construct: function(self, options) {
-    self.enableClickHandlers = {
-      apos.ui.link('apos-site-review-approve', function() {
+    var workflow = apos.modules['apostrophe-workflow'];
+    self.enableClickHandlers = function() {
+      apos.ui.link('apos-site-review', 'approve', function() {
         apos.ui.globalBusy(true);
         self.api('approve', {
-          workflowGuid: apos.modules['apostrophe-workflow'].options.contextGuid
+          ids: [ self.options.contextId ] // workflow.getDocIds()
         }, function(data) {
           if (data.status === 'ok') {
             self.next();
+          } else if (data.status === 'Ready to Deploy') {
+            apos.ui.globalBusy(false);
+            apos.notify('The review is complete.', { status: 'success' });
+            $('[data-apos-site-review-menu]').hide();
+          } else {
+            apos.ui.globalBusy(false);
+            apos.notify('An error occurred during the review process.', { status: 'error' });
           }
-        }
-        return false;
+        });
+      });
+      apos.ui.link('apos-site-review', 'reject', function() {
+        apos.ui.globalBusy(true);
+        self.api('reject', {
+          _id: self.options.contextId
+        }, function(data) {
+          if (data.status === 'ok') {
+            window.location.reload(true);
+          } else {
+            apos.notify('An error occurred while attempting to reject the document.', { type: 'error' });
+          }
+        });
       });
     },
     // Navigate to next doc requiring review, if any
@@ -24,6 +48,13 @@ apos.define('apostrophe-site-review', {
           }
         }
       });
+    };
+
+    self.enableReviewingClass = function() {
+      if (self.options.reviewing) {
+        // Under review
+        $('body').addClass('apos-site-review-reviewing');
+      }
     };
   }
 });
