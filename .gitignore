@@ -2,6 +2,7 @@ test/data
 test/locales
 test/public/modules/*
 test/public/css/master-*
+test/public/uploads2
 npm-debug.log
 *.DS_Store
 *.npmignore

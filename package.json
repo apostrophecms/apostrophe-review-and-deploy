@@ -21,8 +21,10 @@
   "homepage": "https://github.com/punkave/apostrophe-site-review#readme",
   "dependencies": {
     "bson": "^1.0.4",
+    "express-bearer-token": "^2.1.0",
     "lodash": "^4.17.4",
-    "read-async-bson": "^0.1.2"
+    "read-async-bson": "^0.1.2",
+    "request-promise": "^4.2.2"
   },
   "devDependencies": {
     "apostrophe-workflow": "^2.5.0",

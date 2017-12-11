@@ -7,7 +7,11 @@ apos.define('apostrophe-site-review-manager-modal', {
         var _id = $(this).closest('[data-piece]').attr('data-piece');
         // Ah, "confirm:" the screen door on the side of our space shuttle
         if (confirm('This will make the approved content of this locale live in production. Are you sure?')) {
-          alert('Well, good, but we have to implement it first. ' + _id);
+          self.api('deploy', {}, function(data) {
+            apos.modules['apostrophe-jobs'].progress(data.jobId);
+          }, function(err) {
+            apos.notify('An error occurred initiating the deployment.', { type: 'error' });
+          });
         }
         return false;
       });

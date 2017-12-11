@@ -1,4 +1,5 @@
 var assert = require('assert');
+var fs = require('fs');
 
 describe('apostrophe-site-review', function() {
 
@@ -6,11 +7,17 @@ describe('apostrophe-site-review', function() {
   var apos2;
   var exported;
   var oldAboutId;
+  var attachment;    
   
   this.timeout(5000);
 
   after(function() {
-    apos.db.dropDatabase();
+    if (apos) {
+      apos.db.dropDatabase();
+    }
+    if (apos2) {
+      apos2.db.dropDatabase();
+    }
   });
 
   //////
@@ -71,7 +78,13 @@ describe('apostrophe-site-review', function() {
             }
           ]
         },
-        'apostrophe-site-review': {}
+        'apostrophe-site-review': {
+          deployTo: {
+            baseUrl: 'http://localhost:7001',
+            prefix: '',
+            apikey: 'testtest'
+          }
+        }
       },
       afterInit: function(callback) {
         assert(apos.modules['apostrophe-site-review']);
@@ -147,6 +160,126 @@ describe('apostrophe-site-review', function() {
       assert(test.navigation.items[0].ids);
       assert(test.navigation.items[0].ids[0] !== oldAboutId);
       assert(test.navigation.items[0].ids[0] === about._id);
+    });
+  });
+
+  it('insert an attachment', function(done) {
+    return apos.attachments.insert(apos.tasks.getReq(), {
+      path: __dirname + '/jack-o-lantern-head.jpg',
+      name: 'jack-o-lantern-head.jpg'
+    }, function(err, _attachment) {
+      assert(!err);
+      attachment = _attachment;
+      assert(attachment);
+      done();
+    });
+  });
+    
+  it('insert an image', function(done) {
+    return apos.images.insert(apos.tasks.getReq({ locale: 'fr' }), {
+      title: 'Jack O Lantern Head',
+      attachment: attachment,
+      published: true
+    }, function(err, _image) {
+      if (err) {
+        console.error(err);
+      }
+      assert(!err);
+      image = _image;
+      assert(image);
+      done();
+    });
+  });
+
+  it('should configure a second, receiving site', function(done) {
+    apos2 = require('apostrophe')({
+      testModule: true,
+      shortName: 'test2',
+      modules: {
+        'apostrophe-pages': {
+          park: [
+            {
+              slug: '/test',
+              type: 'testPage',
+              navigation: {
+                type: 'area',
+                items: [
+                  {
+                    type: 'navigation',
+                    _id: 'xyz',
+                    by: 'id',
+                    ids: [ 'placeholder' ]
+                  }
+                ]
+              }
+            },
+            {
+              slug: '/about',
+              type: 'testPage',
+              title: 'About'
+            }
+          ],
+          types: [
+            {
+              name: 'home',
+              label: 'Home'
+            },
+            {
+              name: 'testPage',
+              label: 'Test Page'
+            }
+          ]
+        },
+        'apostrophe-workflow': {
+          locales: [
+            {
+              name: 'default',
+              children: [
+                {
+                  name: 'en'
+                },
+                {
+                  name: 'fr'
+                }
+              ]
+            }
+          ]
+        },
+        'apostrophe-site-review': {
+          receiveFrom: {
+            apikey: 'testtest'
+          }
+        },
+        'apostrophe-express': {
+          port: 7001
+        },
+        'apostrophe-attachments': {
+          uploadfs: {
+            uploadsPath: __dirname + '/public/uploads2',
+            uploadsUrl: '/public/uploads2',
+            tempPath: __dirname + '/data/temp/uploadfs2'
+          }
+        }
+      },
+      afterInit: function(callback) {
+        assert(apos.modules['apostrophe-site-review']);
+        return callback(null);
+      },
+      afterListen: function(err) {
+        done();
+      }
+    });
+  });
+
+  it('should export attachments', function() {
+    var siteReview = apos.modules['apostrophe-site-review'];
+    return siteReview.deployAttachments()
+    .then(function() {
+      return apos2.attachments.db.findOne({ _id: attachment._id })
+    })
+    .then(function(received) {
+      assert(received);
+      assert(fs.existsSync(__dirname + '/public/uploads2' + apos2.attachments.url(received, { uploadfsPath: true })));
     });
   });
 });

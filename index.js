@@ -6,6 +6,8 @@ var fs = require('fs');
 var Promise = require('bluebird');
 var zlib = require('zlib');
 var cuid = require('cuid');
+var request = require('request-promise');
+var expressBearerToken = require('express-bearer-token')();
 
 module.exports = {
   extend: 'apostrophe-pieces',
@@ -14,6 +16,7 @@ module.exports = {
   adminOnly: true,
   batchSize: 200,
   rollback: 5,
+  sendAttachmentConcurrency: 3,
   moogBundle: {
     modules: [ 'apostrophe-site-review-workflow' ],
     directory: 'lib/modules'
@@ -96,6 +99,7 @@ module.exports = {
     self.excludeFromWorkflow();
     self.addRoutes();
     self.apos.pages.addAfterContextMenu(self.menu);
+    self.addCsrfExceptions();
   },
 
   construct: function(self, options) {
@@ -204,11 +208,175 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
+
+      self.route('get', 'attachments', self.deployPermissions, function(req, res) {
+        return self.apos.attachments.db.find({}).toArray()
+        .then(function(attachments) {
+          return res.send(attachments);
+        })
+        .catch(function(e) {
+          console.error(e);
+          res.status(500).send('error');
+        });
+      });
+  
+      // Accept information about new attachments (`inserts`),
+      // and new crops of attachments we already have (`crops`).
+      // This should be preceded by the use of /attachments/upload to
+      // sync individual files before the metadata appears in the db,
+      // leading to their possible use
+  
+      self.route('post', 'attachments', self.deployPermissions, function(req, res) {
+        if (!Array.isArray(req.body.inserts)) {
+          return res.status(400).send('bad request');
+        }
+        var inserts = req.body.inserts;
+        _.each(inserts, function(attachment) {
+          if ((!attachment) || (!attachment._id)) {
+            return res.status(400).send('bad request');
+          }
+        });
+        var newCrops = req.body.newCrops;
+        if (!Array.isArray(newCrops)) {
+          return res.status(400).send('bad request');
+        }
+        var newlyVisibles = self.apos.launder.ids(req.body.newlyVisibles);
+        _.each(newCrops, function(cropInfo) {
+          if (typeof(cropInfo._id) !== 'string') {
+            return res.status(400).send('bad request');
+          }
+          if (typeof(cropInfo.crop) !== 'object') {
+            return res.status(400).send('bad request');
+          }
+        });
+        var insertStep;
+        if (inserts.length) {
+          insertStep = self.apos.attachments.db.insert(inserts);
+        } else {
+          insertStep = Promise.resolve(true);
+        }
+        return insertStep.then(function() {
+          return Promise.map(newCrops, function(cropInfo) {
+            return self.apos.attachments.db.update({
+              _id: cropInfo._id,
+              $push: {
+                crops: cropInfo.crop
+              }
+            });
+          });
+        })
+        .then(function() {
+          return self.apos.attachments.db.update({
+            _id: { $in: newlyVisibles }
+          }, {
+            $set: {
+              trash: false
+            }
+          }, {
+            multi: true
+          });
+        })
+        .then(function() {
+          return res.status(200).send('ok');
+        })
+        .catch(function(e) {
+          console.error(e);
+          return res.status(500).send('error');
+        });
+      });
+  
+      // Accept a single file at a specified uploadfs path
+      self.route('post', 'attachments/upload', self.apos.middleware.files, self.deployPermissions, function(req, res) {
+        var copyIn = Promise.promisify(self.apos.attachments.uploadfs.copyIn);
+        var metadata;
+        var file;
+        try {
+          file = req.files.file;
+          if (!file) {
+            throw new Error('no file');
+          }
+          // uploadfs path is in a separate argument in case middleware
+          // "helpfully" launders off too much of it
+          path = self.apos.launder.string(req.body.path);
+          if (path.match(/\.\./)) {
+            throw new Error('sneaky');
+          }
+        } catch (e) {
+          return res.status(400).send('bad request');
+        }
+        return copyIn(file.path, path)
+        .then(function() {
+          return res.status(200).send('ok');
+        })
+        .catch(function(e) {
+          console.error(e);
+          res.status(500).send('error');
+        });
+      });
+
+      // UI route to initiate a deployment. Replies with `{ jobId: nnn }`,
+      // suitable for calling `apos.modules['apostrophe-jobs'].progress(jobId)`.
+
+      self.route('post', 'deploy', self.requireAdmin, function(req, res) {
+        var locale = workflow.liveify(req.locale);
+        var filename;
+        return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
+          label: 'Deploying'
+        });
+        function run(req, reporting) {
+          return self.deployAttachments()
+          .then(function() {
+            return self.exportLocale(req)
+          })
+          .then(function(_filename) {
+            filename = _filename;
+            return self.remoteApi('locale', {
+              method: 'POST',
+              formData: {
+                locale: locale,
+                file: fs.createReadStream(filename)
+              }
+            });
+          })
+          .finally(function() {
+            if (filename) {
+              fs.unlinkSync(filename);
+            }
+          });
+        }
+      });
+
+      self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
+        var locale = self.apos.launder.string(req.body.locale);
+        var file = req.files && req.files.file;
+        if (!(locale && file)) {
+          return res.status(400).send('bad request');
+        }
+        return self.importLocale(req, file.path)
+        .then(function() {
+          return res.send('ok');
+        })
+        .catch(function(e) {
+          console.error(e);
+          return res.status(500).send('error');
+        });
+      });
+  
+    };
+
+    self.addCsrfExceptions = function() {
+      self.apos.on('csrfExceptions', function(list) {
+        list.push(self.action + '/locale');
+        list.push(self.action + '/deploy');
+        list.push(self.action + '/attachments');
+        list.push(self.action + '/attachments/upload');
+      });
     };
 
     // Returns a promise for the next doc ready for review. If `options.notIds` is
     // present, docs whose ids are in that array are skipped.
     self.getNextDoc = function(req, options) {
+      options = options || {};
       var cursor = self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).joins(false).areas(false);
       var nextOptions;
       if (options && options.notIds) {
@@ -221,7 +389,7 @@ module.exports = {
         }
         if (!doc._url) {
           // Skip anything without a URL
-          nextOptions = _.assign({}, options || {}, { notIds: (options.notIds || []).concat([ doc._id ]) });
+          nextOptions = _.assign({}, options, { notIds: (options.notIds || []).concat([ doc._id ]) });
           return self.getNextDoc(req, nextOptions);
         }
         return doc;
@@ -461,18 +629,18 @@ module.exports = {
       )
       .then(function() {
         // Rename locale-rollback-0 to locale-rollback-1, etc.
-        var n = 0;
+        var n = self.options.rollback || 0;
         return archiveNext();
         function archiveNext() {
-          if (n >= self.options.rollback) {
+          if (n === 0) {
             return;
           }
           return self.apos.docs.db.update(
             {
-              workflowLocaleForPathIndex: locale + '-rollback-' + n
+              workflowLocaleForPathIndex: locale + '-rollback-' + (n - 1)
             }, {
               $set: {
-                workflowLocaleForPathIndex: locale + '-rollback-' + (n + 1)
+                workflowLocaleForPathIndex: locale + '-rollback-' + n
               }
             },
             {
@@ -482,10 +650,10 @@ module.exports = {
           .then(function() {
             return self.apos.docs.db.update(
               {
-                workflowLocale: locale + '-rollback-' + n
+                workflowLocale: locale + '-rollback-' + (n - 1)
               }, {
                 $set: {
-                  workflowLocale: locale + '-rollback-' + (n + 1)
+                  workflowLocale: locale + '-rollback-' + n
                 }
               },
               {
@@ -493,8 +661,8 @@ module.exports = {
               }
             );
           })
-          .then(function() {
-            n++;
+          .then(function(r) {
+            n--;
             return archiveNext();
           });
         }
@@ -594,6 +762,147 @@ module.exports = {
         });
       }
 
+    };
+
+    // Deploys attachments to the host specified by the
+    // `deployTo` option (see documentation). Only the
+    // files that the receiving host does not already
+    // have are transmitted. The `aposAttachments` collection
+    // on the receiving end is updated. Changes in file visibility are
+    // also updated.
+    //
+    // If a file the receiving end does not have yet is inaccessible
+    // (trash) on the sending end, the actual file is not sent at this time,
+    // since it would not be visible anyway and sending it would require
+    // toggling the permissions. We do send those paths if it becomes
+    // visible later.
+
+    self.deployAttachments = function() {
+      if (!self.options.deployTo) {
+        return Promise.reject('deployTo option is not configured');
+      }
+      var deployTo = self.options.deployTo;
+      var remote, local;
+      var inserts = [];
+      var newlyVisibles = [];
+      var newCrops = [];
+      var paths = [];
+      return self.remoteApi('attachments', { json: true })
+      .then(function(_remote) {
+        remote = _remote;
+        return self.apos.attachments.db.find({}).toArray();
+      })
+      .then(function(_local) {
+        local = _local;
+        var remoteById = _.keyBy(remote, '_id');
+        var localById = _.keyBy(local, '_id');
+        _.each(local, function(attachment) {
+          var remote = remoteById[attachment._id];
+          if (!remote) {
+            inserts.push(attachment);
+          } else if (remote.trash && (!local.trash)) {
+            newlyVisibles.push(attachment._id);
+          } else {
+            _.each(attachment.crops, function(crop) {
+              if (!_.find(remote.crops || [], function(remoteCrop) {
+                return _.isEqual(crop, remoteCrop);
+              })) {
+                appendPaths(attachment, crop);
+                newCrops.push({ _id: attachment._id, crop: crop });
+              }
+            });
+          }
+        });
+      })
+      .then(function() {
+        _.each(inserts.concat(newlyVisibles), function(attachment) {
+          appendPaths(attachment, null);
+          _.map(attachment.crops, function(crop) {
+            appendPaths(attachment, crop);
+          });
+        });
+        function appendPaths(attachment, crop) {
+          if (attachment.trash) {
+            // Don't send what we would have to temporarily chmod first
+            // and the end user will not be able to see anyway
+            return;
+          }
+          _.each(self.apos.attachments.imageSizes.concat([ { name: 'original' } ]), function(size) {
+            paths.push(
+              self.apos.attachments.url(attachment, { uploadfsPath: true, size: size.name, crop: crop })
+            );
+          });
+        }
+      })
+      .then(function() {
+        return Promise.map(paths, self.deployPath, { concurrency: self.options.sendAttachmentConcurrency });
+      })
+      .then(function() {
+        return self.remoteApi('attachments', {
+          method: 'POST',
+          json: true,
+          body: {
+            inserts: inserts,
+            newCrops: newCrops,
+            newlyVisibles: _.map(newlyVisibles, '_id')
+          }
+        });
+      });
+    };
+
+    // Deploy the file at one uploadfs path to the remote server.
+
+    self.deployPath = function(path) {
+      var copyOut = Promise.promisify(self.apos.attachments.uploadfs.copyOut);
+      if (!self.options.deployTo) {
+        return Promise.reject('deployTo option is not configured');
+      }
+      var id = cuid();
+      var temp = self.apos.rootDir + '/data/attachment-temp-' + id;
+      return copyOut(path, temp)
+      .then(function() {
+        return self.remoteApi('attachments/upload', {
+          method: 'POST',
+          formData: {
+            path: path,
+            file: fs.createReadStream(temp)
+          }
+        });
+      })
+      .finally(function() {
+        if (fs.existsSync(temp)) {
+          fs.unlinkSync(temp);
+        }
+      });
+    };
+
+    // Invoke a remote API. A simple wrapper around request-promise
+    // build the correct URL. `options` is the usual `request` options object.
+    // Returns a promise.
+    self.remoteApi = function(verb, options) {
+      var deployTo = self.options.deployTo;
+      if (!deployTo) {
+        return Promise.reject(new Error('deployTo option must be configured'));
+      }
+      if (!deployTo.apikey) {
+        return Promise.reject(new Error('deployTo.apikey option must be configured'));
+      }
+      var options = _.merge({
+        headers: {
+          'Authorization': 'Bearer ' + deployTo.apikey
+        }
+      }, options);
+      var url = deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-site-review/' + verb;
+      return request(deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-site-review/' + verb, options || {});
+    };
+
+    self.deployPermissions = function(req, res, next) {
+      return expressBearerToken(req, res, function() {
+        if ((!req.token) || (!self.options.receiveFrom) || (!self.options.receiveFrom.apikey) || (self.options.receiveFrom.apikey !== req.token)) {
+          return res.status(401).send('unauthorized');
+        }
+        return next();
+      });
     };
 
   }
