@@ -1,4 +1,4 @@
-apos.define('apostrophe-site-review-editor-modal', {
+apos.define('apostrophe-review-and-deploy-editor-modal', {
   extend: 'apostrophe-pieces-editor-modal',
   construct: function(self, options) {
     // When a review is put into the "In Progress" status,

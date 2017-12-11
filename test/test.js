@@ -1,7 +1,7 @@
 var assert = require('assert');
 var fs = require('fs');
 
-describe('apostrophe-site-review', function() {
+describe('apostrophe-review-and-deploy', function() {
 
   var apos;
   var apos2;
@@ -78,7 +78,7 @@ describe('apostrophe-site-review', function() {
             }
           ]
         },
-        'apostrophe-site-review': {
+        'apostrophe-review-and-deploy': {
           deployTo: {
             baseUrl: 'http://localhost:7001',
             prefix: '',
@@ -87,7 +87,7 @@ describe('apostrophe-site-review', function() {
         }
       },
       afterInit: function(callback) {
-        assert(apos.modules['apostrophe-site-review']);
+        assert(apos.modules['apostrophe-review-and-deploy']);
         return callback(null);
       },
       afterListen: function(err) {
@@ -120,7 +120,7 @@ describe('apostrophe-site-review', function() {
       });
     })
     .then(function() {
-      return apos.modules['apostrophe-site-review'].exportLocale(req);
+      return apos.modules['apostrophe-review-and-deploy'].exportLocale(req);
     })
     .then(function(filename) {
       assert(filename);
@@ -133,7 +133,7 @@ describe('apostrophe-site-review', function() {
   it('should import a locale on request', function() {
     // import to different locale name for test purposes
     var req = apos.tasks.getReq({ locale: 'frimporttest' });
-    return apos.modules['apostrophe-site-review'].importLocale(req, exported)
+    return apos.modules['apostrophe-review-and-deploy'].importLocale(req, exported)
     .then(function() {
       return apos.docs.db.count({ workflowLocale: 'frimporttest' })
     })
@@ -245,7 +245,7 @@ describe('apostrophe-site-review', function() {
             }
           ]
         },
-        'apostrophe-site-review': {
+        'apostrophe-review-and-deploy': {
           receiveFrom: {
             apikey: 'testtest'
           }
@@ -262,7 +262,7 @@ describe('apostrophe-site-review', function() {
         }
       },
       afterInit: function(callback) {
-        assert(apos.modules['apostrophe-site-review']);
+        assert(apos.modules['apostrophe-review-and-deploy']);
         return callback(null);
       },
       afterListen: function(err) {
@@ -272,7 +272,7 @@ describe('apostrophe-site-review', function() {
   });
 
   it('should export attachments', function() {
-    var siteReview = apos.modules['apostrophe-site-review'];
+    var siteReview = apos.modules['apostrophe-review-and-deploy'];
     return siteReview.deployAttachments()
     .then(function() {
       return apos2.attachments.db.findOne({ _id: attachment._id })

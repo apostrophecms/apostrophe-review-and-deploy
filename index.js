@@ -11,21 +11,21 @@ var expressBearerToken = require('express-bearer-token')();
 
 module.exports = {
   extend: 'apostrophe-pieces',
-  name: 'apostrophe-site-review',
+  name: 'apostrophe-review-and-deploy',
   label: 'Review',
   adminOnly: true,
   batchSize: 200,
   rollback: 5,
   sendAttachmentConcurrency: 3,
   moogBundle: {
-    modules: [ 'apostrophe-site-review-workflow' ],
+    modules: [ 'apostrophe-review-and-deploy-workflow' ],
     directory: 'lib/modules'
   },
 
   beforeConstruct: function(self, options) {
     var workflow = options.apos.modules['apostrophe-workflow'];
     if (!workflow) {
-      throw new Error('The apostrophe-workflow module must be configured before the apostrophe-site-review module.');
+      throw new Error('The apostrophe-workflow module must be configured before the apostrophe-review-and-deploy module.');
     }
 
     options.addFields = [
@@ -102,6 +102,7 @@ module.exports = {
     var workflow = self.apos.modules['apostrophe-workflow'];
     self.excludeFromWorkflow = function() {
       workflow.excludeTypes.push(self.name);
+      workflow.excludeProperties.push('siteReviewRank', 'siteReviewApproved');
     };
     self.menu = function(req) {
       if (!self.isAdmin(req)) {
@@ -628,7 +629,7 @@ module.exports = {
                 return callback(new Error('Invalid version number'));
               }
               if (version > 1) {
-                return callback(new Error('This file came from a newer version of apostrophe-site-review, I don\'t know how to read it'));
+                return callback(new Error('This file came from a newer version of apostrophe-review-and-deploy, I don\'t know how to read it'));
               }
               ids = doc.ids;
               if (!Array.isArray(ids)) {
@@ -918,8 +919,8 @@ module.exports = {
           'Authorization': 'Bearer ' + deployTo.apikey
         }
       }, options);
-      var url = deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-site-review/' + verb;
-      return request(deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-site-review/' + verb, options || {});
+      var url = deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-review-and-deploy/' + verb;
+      return request(deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-review-and-deploy/' + verb, options || {});
     };
 
     self.deployPermissions = function(req, res, next) {

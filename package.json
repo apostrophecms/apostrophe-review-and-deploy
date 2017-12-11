@@ -1,5 +1,5 @@
 {
-  "name": "apostrophe-site-review",
+  "name": "apostrophe-review-and-deploy",
   "version": "2.0.0",
   "description": "Require an approval process for the entire site, or one locale, then push the site's content from \"pre-production\" to production on another host",
   "main": "index.js",
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/punkave/apostrophe-site-review.git"
+    "url": "git+https://github.com/punkave/apostrophe-review-and-deploy.git"
   },
   "keywords": [
     "apostrophe"
@@ -16,9 +16,9 @@
   "author": "P'unk Avenue LLC",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/punkave/apostrophe-site-review/issues"
+    "url": "https://github.com/punkave/apostrophe-review-and-deploy/issues"
   },
-  "homepage": "https://github.com/punkave/apostrophe-site-review#readme",
+  "homepage": "https://github.com/punkave/apostrophe-review-and-deploy#readme",
   "dependencies": {
     "bson": "^1.0.4",
     "express-bearer-token": "^2.1.0",

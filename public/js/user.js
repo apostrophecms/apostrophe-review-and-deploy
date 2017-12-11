@@ -1,4 +1,4 @@
-apos.define('apostrophe-site-review', {
+apos.define('apostrophe-review-and-deploy', {
   extend: 'apostrophe-pieces',
   afterConstruct: function(self) {
     self.enableClickHandlers();

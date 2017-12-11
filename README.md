@@ -14,9 +14,9 @@ But for those who require a "waterfall" review process before all of the content
 modules: {
   'apostrophe-workflow': {
     // See documentation for this module.
-    // REQUIRED for use of apostrophe-site-review.
+    // REQUIRED for use of apostrophe-review-and-deploy.
   },
-  'apostrophe-site-review': {}
+  'apostrophe-review-and-deploy': {}
 }
 ```
 
@@ -46,7 +46,7 @@ As admins approve documents, they will automatically progress through the site. 
 // in app.js
 
 modules: {
-  'apostrophe-site-review': {
+  'apostrophe-review-and-deploy': {
     approvalOrder: [ 'blog', 'event', 'apostrophe-image' ]
   }
 }
@@ -87,7 +87,7 @@ To deploy content to another host at the end of an approved site review, you'll 
 // where the review happened
 
 modules: {
-  'apostrophe-site-review': {
+  'apostrophe-review-and-deploy': {
     deployTo: {
       // Should match the `baseUrl` option of the
       // other site
@@ -106,7 +106,7 @@ modules: {
 // where the content will become live
 
 modules: {
-  'apostrophe-site-review': {
+  'apostrophe-review-and-deploy': {
     receiveFrom: {
       // The other site must present this API key
       apikey: 'XXXXXXXXX',

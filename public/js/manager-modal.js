@@ -1,4 +1,4 @@
-apos.define('apostrophe-site-review-manager-modal', {
+apos.define('apostrophe-review-and-deploy-manager-modal', {
   extend: 'apostrophe-pieces-manager-modal',
   construct: function(self, options) {
     var superBeforeShow = self.beforeShow;
