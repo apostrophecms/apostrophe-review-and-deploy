@@ -24,7 +24,7 @@ modules: {
 
 Once the module is enabled, a "Review" button will appear in the admin bar.
 
-*Currently only sitewide admins may initiate, complete and deploy content via reviews. TODO: add more nuance, but keep in mind the implications of being able to push an entire locale live to production.*
+*Currently only sitewide admins may initiate, complete and deploy content via reviews. TODO: add more nuance here, but keep in mind the considerable implications of being able to push an entire locale live to production.*
 
 As a sitewide admin, click "Reviews," then "Add Review." Give the review a title, such as "September review of en locale."
 
@@ -34,11 +34,11 @@ Click "Save" to begin the review.
 
 **From this point on, users may not make any modifications to the live version of the content for this locale.** Draft content may still be edited, but commits and operations such as movement in the page tree are **blocked for the duration of the review.** This ensures that a document cannot be modified between the time of its approval and the time the rest of the content is fully approved and deployed.
 
-**Once the review is in progress, an "Under Review" message will appear for everyone with editing privileges for the content.** In addition, users with permission to contribute to the review will see buttons to approve or reject the documents visible on the page.
+**Once the review is in progress, admins will see "Approve" and "Reject" buttons for review purposes when viewing pages in live mode.** 
 
-As a compromise between strictness and productivity, approving a page approves all of the content both on that page and on any related documents, such as images, whose content is directly visible on it via widgets.
+Since the purpose of the review is to check how documents appear "in context" on a page,  approving a page approves all of the content both on that page and on any related documents, such as images, whose content is directly visible on it via widgets.
 
-As users approve documents, they will automatically progress through the site. The review process begins with pages, then cycles through pieces not already approved. For instance, older blog articles not currently appearing on page one of your site's blog will not be implicitly approved with the page, so they will be reviewed individually.
+As admins approve documents, they will automatically progress through the site. The review process begins with pages, then cycles through pieces not already approved. For instance, older blog articles not currently appearing on page one of your site's blog will not be implicitly approved with the page, so they will be reviewed individually.
 
 **Review progresses through piece types in the order they were configured, with two exceptions: images, files and the global doc are reviewed last.** To change this order, use the following option:
 
@@ -56,11 +56,13 @@ modules: {
 
 **If a piece appears on the "show" page for another piece via a widget or join, it is implicitly approved too.** You can take advantage of `approvalOrder` to maximize the chances of this happening.
 
+**If a piece has no "show" page and is not otherwise detected as "in context" on a page somewhere on the site via joins or widgets,** it is not included in the review process.
+
 ### Content that is not locale-specific
 
-Certain document types might be marked as not specific to a locale. Such document types are thus a required part of **every** review, as otherwise they would not be reviewed before deployment of content that depends on them.
+Certain document types might be marked as not specific to a locale. Such documents are **not reviewed**. By default the only document types that are not localized are users and groups.
 
-> Even with this feature, the use of non-locale-specific document types may still present problems for other locales after deployment of approved changes for a single locale. Consider what happens if a non-locale-specific document moves to the trash, meeting the expectations of one locale that has been deployed, but not yet the expectations of others. To prevent "chicken and egg" problems we do not recommend the use of non-locale-specific content types except for those which are necessary to the operation of the system, specifically users and groups.
+While it is possible to configure workflow-exempt piece types in `apostrophe-workflow`, consider what happens if a non-locale-specific document moves to the trash, meeting the expectations of one locale that has been deployed, but not yet the expectations of others. To prevent "chicken and egg" problems we do not recommend the use of non-locale-specific content types except for those which are necessary to the operation of the system, specifically users and groups.
 
 ### Rejecting a Review
 
@@ -68,11 +70,11 @@ Certain document types might be marked as not specific to a locale. Such documen
 
 ### Creating reviews while another review is active
 
-You may not create a new review while another is still in progress for the same locale.
+Any reviews for the same locale already in progress or "ready to deploy" are marked as "superseded" in this situation and cannot be continued.
 
 ### Completing a Review
 
-When a review is completed, it will be marked as such and will remain available in the "Manage Reviews" dialog box. Read on to see how you can take advantage of this module's deployment features to "ship" the approved content to another server at this point. 
+When a review is completed, it will be marked as such in "Manage Reviews." Read on to see how you can take advantage of this module's deployment features to "deploy" the approved content to another server at this point. 
 
 ## Deploying Content
 
@@ -125,11 +127,9 @@ The content will be deployed to the receiving site and become live. This process
 
 ### Rolling back deployments
 
-If a decision is made to roll back a deployment, this can be done by accessing the review via "Manage Reviews" and clicking the "Roll Back" button.
+Currently previous content is correctly migrated to a "rollback locale" for later restoration, but the UI for rolling it back does not yet exist (TODO: implement this).
 
-This will trigger an API request to the receiving site asking it to remove the content and make the previous content live again.
-
-*Only the most recent deployment may be rolled back.* However, after rolling back a deployment it is possible to roll back to the next one. Note that the number of past deployments actually kept by the receiving site is controlled by the `rollback` option.
+The number of past deployments kept for rollback is controlled by the `rollback` option, which defaults to `5`.
 
 ## Implementation notes
 
@@ -141,11 +141,9 @@ Specifically, the new content is inserted using a special temporary locale setti
 
 The only race condition possible is during the update operations to change the locale name. This is a single MongoDB operation and should be very fast, but could take a few seconds on sites with thousands of documents.
 
-To address this, the module provides special middleware that keeps requests "on hold" until this final changeover completes.
+An additional benefit is that if a deployment fails, there is no impact on end users. The content in the temporary locale is simply ignored.
 
-An additional benefit is that if a deployment fails, there is no impact on end users. The content in the temporary locale is simply removed.
-
-And, of course, the use of archival locale names allows for rollback of deployments.
+TODO: consider implementing special middleware that keeps requests "on hold" until this final changeover completes. This would require a flag in the `global` doc.
 
 ### `_id` conflicts
 
@@ -155,4 +153,6 @@ Our solution: **change _id before inserting the new documents.** This avoids the
 
 ### Deploying media
 
-Media is included in the deployment process. New attachments are "pushed out" as part of the sync process. Attachment status/permissions changes (e.g. the document they are a part of is now in the trash) are also pushed. And if the list of available image sizes has been changed between deployments, an MD5 hash of the `sizes` configuration in use is used to detect this situation. If it does not match after deployment for an image attachment, the attachment's scaled versions are regenerated.
+Media is included in the deployment process. New attachments are "pushed out" as part of the sync process. Attachment status/permissions changes (e.g. the document they are a part of is now in the trash) are also pushed. If it does not match after deployment for an image attachment, the attachment's scaled versions are regenerated.
+
+TODO: if the list of available image sizes has been changed between deployments, an MD5 hash of the `sizes` configuration in use should be used to detect this situation.

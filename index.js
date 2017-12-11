@@ -594,43 +594,52 @@ module.exports = {
       fileIn = fs.createReadStream(filename);
       fileIn.pipe(zin);
 
-      // read the file, import to temporary locale
-      var reader = Promise.promisify(require('read-async-bson'));
-      return reader(
-        { from: zin },
-        function(doc, callback) {
-          if (!version) {
-            // first object is metadata
-            version = doc.version;
-            if (typeof(version) !== 'number') {
-              return callback(new Error('The first BSON object in the file must contain version and ids properties'));
+      return Promise.try(function() {
+        // Remove any leftover failed attempt at a previous import
+        // so we don't get duplicate junk if this one succeeds
+        return self.apos.docs.db.remove({
+          workflowLocale: locale + '-importing'
+        });
+      })
+      .then(function() {
+          // read the file, import to temporary locale
+          var reader = Promise.promisify(require('read-async-bson'));
+        return reader(
+          { from: zin },
+          function(doc, callback) {
+            if (!version) {
+              // first object is metadata
+              version = doc.version;
+              if (typeof(version) !== 'number') {
+                return callback(new Error('The first BSON object in the file must contain version and ids properties'));
+              }
+              if (version < 1) {
+                return callback(new Error('Invalid version number'));
+              }
+              if (version > 1) {
+                return callback(new Error('This file came from a newer version of apostrophe-site-review, I don\'t know how to read it'));
+              }
+              ids = doc.ids;
+              if (!Array.isArray(ids)) {
+                return callback(new Error('The first BSON object in the file must contain version and ids properties'));
+              }
+              _.each(ids, function(id) {
+                idsToNew[id] = cuid();
+              });
+              return callback(null);
+            } else {
+              // Iterator, invoked once per doc
+              doc.workflowLocale = locale + '-importing';
+              if (doc.workflowLocaleForPathIndex) {
+                doc.workflowLocaleForPathIndex = doc.workflowLocale;
+              }
+              replaceIdsRecursively(doc);
+              
+              return self.apos.docs.db.insert(doc, callback);
             }
-            if (version < 1) {
-              return callback(new Error('Invalid version number'));
-            }
-            if (version > 1) {
-              return callback(new Error('This file came from a newer version of apostrophe-site-review, I don\'t know how to read it'));
-            }
-            ids = doc.ids;
-            if (!Array.isArray(ids)) {
-              return callback(new Error('The first BSON object in the file must contain version and ids properties'));
-            }
-            _.each(ids, function(id) {
-              idsToNew[id] = cuid();
-            });
-            return callback(null);
-          } else {
-            // Iterator, invoked once per doc
-            doc.workflowLocale = locale + '-importing';
-            if (doc.workflowLocaleForPathIndex) {
-              doc.workflowLocaleForPathIndex = doc.workflowLocale;
-            }
-            replaceIdsRecursively(doc);
-            
-            return self.apos.docs.db.insert(doc, callback);
           }
-        }
-      )
+        );
+      })
       .then(function() {
         // Rename locale-rollback-0 to locale-rollback-1, etc.
         var n = self.options.rollback || 0;
