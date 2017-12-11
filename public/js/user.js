@@ -36,6 +36,10 @@ apos.define('apostrophe-site-review', {
           }
         });
       });
+      apos.ui.link('apos-site-review', 'next', function() {
+        apos.ui.globalBusy(true);
+        self.next();
+      });
     },
     // Navigate to next doc requiring review, if any
     self.next = function() {

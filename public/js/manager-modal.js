@@ -8,7 +8,7 @@ apos.define('apostrophe-site-review-manager-modal', {
         // Ah, "confirm:" the screen door on the side of our space shuttle
         if (confirm('This will make the approved content of this locale live in production. Are you sure?')) {
           self.api('deploy', {}, function(data) {
-            apos.modules['apostrophe-jobs'].progress(data.jobId);
+            apos.modules['apostrophe-jobs'].progress(data.jobId, { change: self.options.name });
           }, function(err) {
             apos.notify('An error occurred initiating the deployment.', { type: 'error' });
           });

@@ -54,11 +54,7 @@ module.exports = {
           {
             label: 'Deployed',
             value: 'Deployed'
-          },
-          {
-            label: 'Archived',
-            value: 'Archived'
-          },
+          }
         ],
         def: 'In Progress'
       }
@@ -338,7 +334,20 @@ module.exports = {
               }
             });
           })
-          .finally(function() {
+          .then(function() {
+            return self.apos.docs.db.update({
+              type: self.name,
+              locale: locale,
+              status: 'Ready to Deploy'
+            }, {
+              $set: {
+                status: 'Deployed'
+              }
+            }, {
+              multi: 1
+            });
+          })
+          .finally(function(r) {
             if (filename) {
               fs.unlinkSync(filename);
             }
@@ -413,6 +422,8 @@ module.exports = {
         $set: {
           status: 'Superseded'
         }
+      }, {
+        multi: true
       }, callback);
     };
 
