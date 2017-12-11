@@ -329,11 +329,40 @@ module.exports = {
             filename = _filename;
             return self.remoteApi('locale', {
               method: 'POST',
+              json: true,
               formData: {
                 locale: locale,
                 file: fs.createReadStream(filename)
               }
             });
+          })
+          .then(function(result) {
+            if (!result.jobId) {
+              throw new Error('upload of locale failed');
+            }
+            return monitorUntilDone();
+
+            function monitorUntilDone() {
+              return self.remoteApi('locale/progress', {
+                method: 'POST',
+                json: true,
+                body: {
+                  jobId: result.jobId
+                }
+              })
+              .then(function(job) {
+                if (job.status === 'completed') {
+                  return;
+                } else if (job.status === 'failed') {
+                  throw new Error('upload of locale failed');
+                } else {
+                  return Promise.delay(250).then(function() {
+                    return monitorUntilDone();
+                  });
+                }
+              });
+            }
+
           })
           .then(function() {
             return self.apos.docs.db.update({
@@ -362,9 +391,29 @@ module.exports = {
         if (!(locale && file)) {
           return res.status(400).send('bad request');
         }
-        return self.importLocale(req, file.path)
-        .then(function() {
-          return res.send('ok');
+        return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
+          label: 'Deploying'
+        });
+        function run(req, reporting) {
+          return self.importLocale(req, file.path);
+        }
+      });
+
+      // The regular job-monitoring route is CSRF protected and
+      // it renders markup we don't care about. Provide our own
+      // access to the job object. TODO: think about whether
+      // this should be a standard route of `apostrophe-jobs`.
+      self.route('post', 'locale/progress', self.deployPermissions, function(req, res) {
+        var jobId = self.apos.launder.string(req.body.jobId);
+        if (!jobId) {
+          return res.status(400).send('bad request');
+        }
+        return self.apos.modules['apostrophe-jobs'].db.findOne({ _id: jobId })
+        .then(function(job) {
+          if (job) {
+            return res.send(job);
+          }
+          return res.status(404).send('job missing');
         })
         .catch(function(e) {
           console.error(e);
@@ -377,6 +426,7 @@ module.exports = {
     self.addCsrfExceptions = function() {
       self.apos.on('csrfExceptions', function(list) {
         list.push(self.action + '/locale');
+        list.push(self.action + '/locale/progress');
         list.push(self.action + '/deploy');
         list.push(self.action + '/attachments');
         list.push(self.action + '/attachments/upload');
@@ -657,21 +707,36 @@ module.exports = {
         var n = self.options.rollback || 0;
         return archiveNext();
         function archiveNext() {
+          var cleanStep;
           if (n === 0) {
             return;
           }
-          return self.apos.docs.db.update(
-            {
-              workflowLocaleForPathIndex: locale + '-rollback-' + (n - 1)
-            }, {
-              $set: {
-                workflowLocaleForPathIndex: locale + '-rollback-' + n
+          if (n === self.options.rollback) {
+            // If the max is 5 and rollback-5 already exists,
+            // we'll be dropping 4 on top of an existing 5,
+            // leading to collisions in the index. Remove
+            // the old 5 first
+            cleanStep = self.apos.docs.db.remove({
+              workflowLocale: locale + '-rollback-' + n
+            });
+          } else {
+            cleanStep = Promise.resolve(true);
+          }
+          return cleanStep
+          .then(function() {
+            return self.apos.docs.db.update(
+              {
+                workflowLocaleForPathIndex: locale + '-rollback-' + (n - 1)
+              }, {
+                $set: {
+                  workflowLocaleForPathIndex: locale + '-rollback-' + n
+                }
+              },
+              {
+                multi: true
               }
-            },
-            {
-              multi: true
-            }
-          )
+            )
+          })
           .then(function() {
             return self.apos.docs.db.update(
               {
