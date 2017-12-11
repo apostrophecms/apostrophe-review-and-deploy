@@ -64,7 +64,7 @@ module.exports = {
       }
     ].concat(options.addFields || []);
 
-    options.removeFields = [ 'tags', 'published', 'siteMapPriority' ];
+    options.removeFields = [ 'tags', 'published' ];
     options.arrangeFields = [
       {
         name: 'basics',
@@ -108,7 +108,7 @@ module.exports = {
       workflow.excludeTypes.push(self.name);
     };
     self.menu = function(req) {
-      if (!req.user) {
+      if (!self.isAdmin(req)) {
         return '';
       }
       return self.partial('menu', { workflowMode: req.session.workflowMode });
@@ -116,7 +116,7 @@ module.exports = {
 
     var superPageBeforeSend = self.pageBeforeSend;
     self.pageBeforeSend = function(req, callback) {
-      if (!req.user) {
+      if (!self.isAdmin(req)) {
         superPageBeforeSend(req);
         return callback(null);
       }
@@ -477,10 +477,14 @@ module.exports = {
     };
 
     self.requireAdmin = function(req, res, next) {
-      if (!(req.user && req.user._permissions && req.user._permissions.admin)) {
+      if (!self.isAdmin(req)) {
         return res.send({ status: 'error' });
       }
       return next();
+    };
+
+    self.isAdmin = function(req) {
+      return req.user && req.user._permissions && req.user._permissions.admin;
     };
 
     // Reviews are not subject to workflow (one doesn't commit
@@ -821,18 +825,6 @@ module.exports = {
             appendPaths(attachment, crop);
           });
         });
-        function appendPaths(attachment, crop) {
-          if (attachment.trash) {
-            // Don't send what we would have to temporarily chmod first
-            // and the end user will not be able to see anyway
-            return;
-          }
-          _.each(self.apos.attachments.imageSizes.concat([ { name: 'original' } ]), function(size) {
-            paths.push(
-              self.apos.attachments.url(attachment, { uploadfsPath: true, size: size.name, crop: crop })
-            );
-          });
-        }
       })
       .then(function() {
         return Promise.map(paths, self.deployPath, { concurrency: self.options.sendAttachmentConcurrency });
@@ -848,6 +840,20 @@ module.exports = {
           }
         });
       });
+
+      function appendPaths(attachment, crop) {
+        if (attachment.trash) {
+          // Don't send what we would have to temporarily chmod first
+          // and the end user will not be able to see anyway
+          return;
+        }
+        _.each(self.apos.attachments.imageSizes.concat([ { name: 'original' } ]), function(size) {
+          paths.push(
+            self.apos.attachments.url(attachment, { uploadfsPath: true, size: size.name, crop: crop })
+          );
+        });
+      }
+
     };
 
     // Deploy the file at one uploadfs path to the remote server.
