@@ -151,7 +151,6 @@ module.exports = {
       self.route('post', 'approve', self.requireAdmin, function(req, res) {
         // TODO if we lower the bar for this from self.requireAdmin, then we'll
         // need to check the permissions properly on the docs
-        console.log('approving: ', req.body.ids);
         return self.apos.docs.db.update({
           _id: { $in: self.apos.launder.ids(req.body.ids) },
           siteReviewApproved: { $exists: 1 }
@@ -163,19 +162,15 @@ module.exports = {
           multi: true
         })
         .then(function(result) {
-          console.log('updated, getting next doc');
           return self.getNextDoc(req);
         })
         .then(function(next) {
-          console.log('got next doc');
           if (next) {
-            console.log('next id is ' + next._id);
             return next;
           } else {
             return self.getActiveReview(req)
             .then(function(review) {
               review.status = 'Ready to Deploy';
-              console.log('sertting ready');
               return self.update(req, review);
             });
           }
@@ -326,6 +321,7 @@ module.exports = {
         return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
           label: 'Deploying'
         });
+        reporting.setTotal(5);
         function run(req, reporting) {
           reporting.good();
           return self.deployAttachments()
@@ -397,17 +393,14 @@ module.exports = {
 
       self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
-        console.log('Receiving locale ' + locale);
         var file = req.files && req.files.file;
         if (!(locale && file)) {
-          console.log('bad request');
           return res.status(400).send('bad request');
         }
         return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
           label: 'Receiving'
         });
         function run(req, reporting) {
-          console.log('invoking importLocale');
           return self.importLocale(req, file.path);
         }
       });
@@ -619,7 +612,7 @@ module.exports = {
       });
 
       function writeUntilExhausted() {
-        var batch = ids.slice(offset, self.options.batchSize);
+        var batch = ids.slice(offset, offset + self.options.batchSize);
         if (!batch.length) {
           return;
         }
@@ -684,7 +677,6 @@ module.exports = {
         return reader(
           { from: zin },
           function(doc, callback) {
-            console.log('> ' + doc._id);
             if (!version) {
               // first object is metadata
               version = doc.version;
@@ -719,7 +711,6 @@ module.exports = {
         );
       })
       .then(function() {
-        console.log('migrating...');
         // Rename locale-rollback-0 to locale-rollback-1, etc.
         var n = self.options.rollback || 0;
         return archiveNext();
@@ -775,7 +766,6 @@ module.exports = {
         }
       })
       .then(function() {
-        console.log('purging...');
         // Purge stuff we no longer keep for rollback.
         //
         // In theory `rollback` could have been a really big number once
@@ -789,7 +779,6 @@ module.exports = {
         });
       })
       .then(function() {
-        console.log('showtime...');
         // Showtime. This has to be as fast as possible.
         //
         // If we're keeping old deployments for rollback,
@@ -827,7 +816,6 @@ module.exports = {
         }
       })
       .then(function() {
-        console.log('showtime part 2...');
         // Showtime, part 2.
         //
         // rename the temporary locale to be the live locale.
