@@ -10,7 +10,7 @@ apos.define('apostrophe-review-and-deploy', {
       apos.ui.link('apos-site-review', 'approve', function() {
         apos.ui.globalBusy(true);
         self.api('approve', {
-          ids: workflow.getDocIds()
+          ids: _.uniq(workflow.getDocIds().concat([ self.options.contextId ]))
         }, function(data) {
           if (data.status === 'ok') {
             self.next();

@@ -91,11 +91,12 @@ module.exports = {
 
   },
   
-  afterConstruct: function(self) {
+  afterConstruct: function(self, callback) {
     self.excludeFromWorkflow();
     self.addRoutes();
     self.apos.pages.addAfterContextMenu(self.menu);
     self.addCsrfExceptions();
+    return self.ensureIndexes(callback);
   },
 
   construct: function(self, options) {
@@ -150,6 +151,7 @@ module.exports = {
       self.route('post', 'approve', self.requireAdmin, function(req, res) {
         // TODO if we lower the bar for this from self.requireAdmin, then we'll
         // need to check the permissions properly on the docs
+        console.log('approving: ', req.body.ids);
         return self.apos.docs.db.update({
           _id: { $in: self.apos.launder.ids(req.body.ids) },
           siteReviewApproved: { $exists: 1 }
@@ -161,15 +163,19 @@ module.exports = {
           multi: true
         })
         .then(function(result) {
+          console.log('updated, getting next doc');
           return self.getNextDoc(req);
         })
         .then(function(next) {
+          console.log('got next doc');
           if (next) {
+            console.log('next id is ' + next._id);
             return next;
           } else {
             return self.getActiveReview(req)
             .then(function(review) {
               review.status = 'Ready to Deploy';
+              console.log('sertting ready');
               return self.update(req, review);
             });
           }
@@ -321,11 +327,14 @@ module.exports = {
           label: 'Deploying'
         });
         function run(req, reporting) {
+          reporting.good();
           return self.deployAttachments()
           .then(function() {
+            reporting.good();
             return self.exportLocale(req)
           })
           .then(function(_filename) {
+            reporting.good();
             filename = _filename;
             return self.remoteApi('locale', {
               method: 'POST',
@@ -337,6 +346,7 @@ module.exports = {
             });
           })
           .then(function(result) {
+            reporting.good();
             if (!result.jobId) {
               throw new Error('upload of locale failed');
             }
@@ -433,15 +443,10 @@ module.exports = {
       });
     };
 
-    // Returns a promise for the next doc ready for review. If `options.notIds` is
-    // present, docs whose ids are in that array are skipped.
-    self.getNextDoc = function(req, options) {
+    // Returns a promise for the next doc ready for review.
+    self.getNextDoc = function(req) {
       options = options || {};
-      var cursor = self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).joins(false).areas(false);
-      var nextOptions;
-      if (options && options.notIds) {
-        cursor.and({ _id: { $nin: options.notIds }});
-      }
+      var cursor = self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).log(true).joins(false).areas(false);
       return cursor.toObject()
       .then(function(doc) {
         if (!doc) {
@@ -449,8 +454,15 @@ module.exports = {
         }
         if (!doc._url) {
           // Skip anything without a URL
-          nextOptions = _.assign({}, options, { notIds: (options.notIds || []).concat([ doc._id ]) });
-          return self.getNextDoc(req, nextOptions);
+          return self.apos.docs.db.update({
+            _id: doc._id
+          }, {
+            $set: {
+              siteReviewApproved: true
+            }
+          }).then(function() {
+            return self.getNextDoc(req);
+          });
         }
         return doc;
       });
@@ -669,6 +681,7 @@ module.exports = {
         return reader(
           { from: zin },
           function(doc, callback) {
+            console.log('> ' + doc._id);
             if (!version) {
               // first object is metadata
               version = doc.version;
@@ -703,6 +716,7 @@ module.exports = {
         );
       })
       .then(function() {
+        console.log('migrating...');
         // Rename locale-rollback-0 to locale-rollback-1, etc.
         var n = self.options.rollback || 0;
         return archiveNext();
@@ -758,6 +772,7 @@ module.exports = {
         }
       })
       .then(function() {
+        console.log('purging...');
         // Purge stuff we no longer keep for rollback.
         //
         // In theory `rollback` could have been a really big number once
@@ -771,6 +786,7 @@ module.exports = {
         });
       })
       .then(function() {
+        console.log('showtime...');
         // Showtime. This has to be as fast as possible.
         //
         // If we're keeping old deployments for rollback,
@@ -808,6 +824,7 @@ module.exports = {
         }
       })
       .then(function() {
+        console.log('showtime part 2...');
         // Showtime, part 2.
         //
         // rename the temporary locale to be the live locale.
@@ -995,6 +1012,10 @@ module.exports = {
         }
         return next();
       });
+    };
+
+    self.ensureIndexes = function(callback) {
+      return self.apos.docs.db.ensureIndex({ siteReviewRank: 1 }, callback);
     };
 
   }
