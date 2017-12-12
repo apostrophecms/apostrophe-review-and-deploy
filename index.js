@@ -397,14 +397,17 @@ module.exports = {
 
       self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
+        console.log('Receiving locale ' + locale);
         var file = req.files && req.files.file;
         if (!(locale && file)) {
+          console.log('bad request');
           return res.status(400).send('bad request');
         }
         return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
-          label: 'Deploying'
+          label: 'Receiving'
         });
         function run(req, reporting) {
+          console.log('invoking importLocale');
           return self.importLocale(req, file.path);
         }
       });
