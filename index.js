@@ -57,6 +57,14 @@ module.exports = {
           }
         ],
         def: 'In Progress'
+      },
+      {
+        type: 'select',
+        name: 'deployTo',
+        label: 'Deploy To',
+        required: true,
+        // patched later from the final value of options.deployTo
+        choices: []
       }
     ].concat(options.addFields || []);
 
@@ -65,7 +73,7 @@ module.exports = {
       {
         name: 'basics',
         label: 'Review',
-        fields: [ 'title', 'slug', 'locale', 'status', 'trash' ]
+        fields: [ 'title', 'slug', 'deployTo', 'locale', 'status', 'trash' ]
       }
     ].concat(options.arrangeFields || []);
     options.addColumns = [
@@ -92,6 +100,7 @@ module.exports = {
   },
   
   afterConstruct: function(self, callback) {
+    self.patchDeployTo();
     self.excludeFromWorkflow();
     self.addRoutes();
     self.apos.pages.addAfterContextMenu(self.menu);
@@ -314,17 +323,29 @@ module.exports = {
 
       // UI route to initiate a deployment. Replies with `{ jobId: nnn }`,
       // suitable for calling `apos.modules['apostrophe-jobs'].progress(jobId)`.
+      //
+      // If `options.deployTo` for this module is an array, then
+      // `req.body.deployTo` must match the `name` property of one
+      // server in that array.
 
       self.route('post', 'deploy', self.requireAdmin, function(req, res) {
         var locale = workflow.liveify(req.locale);
         var filename;
-        return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
-          label: 'Deploying'
+        var options = {};
+        return self.find(req, { _id: self.apos.launder.id(req.body._id) })
+        .toObject()
+        .then(function(review) {
+          options.deployTo = review.deployTo;
+        })
+        .then(function() {
+          return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
+            label: 'Deploying'
+          });
         });
-        reporting.setTotal(5);
         function run(req, reporting) {
+          reporting.setTotal(4);
           reporting.good();
-          return self.deployAttachments()
+          return self.deployAttachments(options)
           .then(function() {
             reporting.good();
             return self.exportLocale(req)
@@ -339,7 +360,7 @@ module.exports = {
                 locale: locale,
                 file: fs.createReadStream(filename)
               }
-            });
+            }, options);
           })
           .then(function(result) {
             reporting.good();
@@ -355,7 +376,7 @@ module.exports = {
                 body: {
                   jobId: result.jobId
                 }
-              })
+              }, options)
               .then(function(job) {
                 if (job.status === 'completed') {
                   return;
@@ -368,7 +389,6 @@ module.exports = {
                 }
               });
             }
-
           })
           .then(function() {
             return self.apos.docs.db.update({
@@ -874,18 +894,20 @@ module.exports = {
     // since it would not be visible anyway and sending it would require
     // toggling the permissions. We do send those paths if it becomes
     // visible later.
+    //
+    // If the module-level `deployTo` option is an array,
+    // then `options.deployTo` must be set to the `name` property
+    // of one element of that array when calling this method.
 
-    self.deployAttachments = function() {
-      if (!self.options.deployTo) {
-        return Promise.reject('deployTo option is not configured');
-      }
-      var deployTo = self.options.deployTo;
+    self.deployAttachments = function(options) {
+      options = options || {};
+      var deployTo = self.resolveDeployTo(options);
       var remote, local;
       var inserts = [];
       var newlyVisibles = [];
       var newCrops = [];
       var paths = [];
-      return self.remoteApi('attachments', { json: true })
+      return self.remoteApi('attachments', { json: true }, options)
       .then(function(_remote) {
         remote = _remote;
         return self.apos.attachments.db.find({}).toArray();
@@ -921,7 +943,9 @@ module.exports = {
         });
       })
       .then(function() {
-        return Promise.map(paths, self.deployPath, { concurrency: self.options.sendAttachmentConcurrency });
+        return Promise.map(paths, function(path) {
+          return self.deployPath(path, options)
+        }, { concurrency: self.options.sendAttachmentConcurrency });
       })
       .then(function() {
         return self.remoteApi('attachments', {
@@ -932,7 +956,7 @@ module.exports = {
             newCrops: newCrops,
             newlyVisibles: _.map(newlyVisibles, '_id')
           }
-        });
+        }, options);
       });
 
       function appendPaths(attachment, crop) {
@@ -951,12 +975,12 @@ module.exports = {
     };
 
     // Deploy the file at one uploadfs path to the remote server.
+    // If the module-level `deployTo` option is an array, then
+    // `options.deployTo` must be present and it must match the
+    // `name` of one of the servers in that array.
 
-    self.deployPath = function(path) {
+    self.deployPath = function(path, options) {
       var copyOut = Promise.promisify(self.apos.attachments.uploadfs.copyOut);
-      if (!self.options.deployTo) {
-        return Promise.reject('deployTo option is not configured');
-      }
       var id = cuid();
       var temp = self.apos.rootDir + '/data/attachment-temp-' + id;
       return copyOut(path, temp)
@@ -967,7 +991,7 @@ module.exports = {
             path: path,
             file: fs.createReadStream(temp)
           }
-        });
+        }, options);
       })
       .finally(function() {
         if (fs.existsSync(temp)) {
@@ -977,23 +1001,45 @@ module.exports = {
     };
 
     // Invoke a remote API. A simple wrapper around request-promise
-    // build the correct URL. `options` is the usual `request` options object.
+    // build the correct URL. `requestOptions` is the usual `request` options object.
+    // `options` may contain `deployTo`; when the `deployTo` option for the
+    // module is an array, `options.deployTo` must match the `name` property of one
+    // server in that array.
+    //
     // Returns a promise.
-    self.remoteApi = function(verb, options) {
-      var deployTo = self.options.deployTo;
-      if (!deployTo) {
-        return Promise.reject(new Error('deployTo option must be configured'));
-      }
+
+    self.remoteApi = function(verb, requestOptions, options) {
+      var deployTo = self.resolveDeployTo(options);
       if (!deployTo.apikey) {
         return Promise.reject(new Error('deployTo.apikey option must be configured'));
       }
-      var options = _.merge({
+      requestOptions = _.merge({
         headers: {
           'Authorization': 'Bearer ' + deployTo.apikey
         }
-      }, options);
+      }, requestOptions);
       var url = deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-review-and-deploy/' + verb;
-      return request(deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-review-and-deploy/' + verb, options || {});
+      return request(deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-review-and-deploy/' + verb, requestOptions);
+    };
+
+    // If the module's `deployTo` option is an object with properties such
+    // as apikey, etc., returns that object directly. If the module's
+    // `deployTo` option is an array, returns the entry whose `name`
+    // property matches the `deployTo` property of the `options` object
+    // passed to this method.
+    
+    self.resolveDeployTo = function(options) {
+      var deployTo = self.options.deployTo;
+      if (!deployTo) {
+        return Promise.reject(new Error('deployTo module-level option must be configured'));
+      }
+      if (Array.isArray(deployTo)) {
+        deployTo = _.find(deployTo, { name: options.deployTo });
+        if (!deployTo) {
+          return Promise.reject(new Error('Since deployTo is an array in the module configuration, the deployTo option to the remoteApi method must match the name property of one server in that array'));
+        }
+      }
+      return deployTo;
     };
 
     self.deployPermissions = function(req, res, next) {
@@ -1007,6 +1053,27 @@ module.exports = {
 
     self.ensureIndexes = function(callback) {
       return self.apos.docs.db.ensureIndex({ siteReviewRank: 1 }, callback);
+    };
+
+    self.patchDeployTo = function() {
+      if ((!Array.isArray(self.options.deployTo)) || (self.options.deployTo.length === 1)) {
+        self.schema = self.apos.schemas.refine(self.schema, {
+          removeFields: [ 'deployTo' ]
+        });
+        return;
+      }
+      var deployTo = _.find(self.schema, { name: 'deployTo' });
+      deployTo.choices = ((self.options.deployTo.length > 1) ? [
+        {
+          label: 'Select One...',
+          value: ''
+        }
+      ] : []).concat(_.map(self.options.deployTo, function(deployTo) {
+        return {
+          label: deployTo.label || deployTo.name,
+          value: deployTo.name
+        };
+      }));
     };
 
   }
