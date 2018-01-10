@@ -156,21 +156,38 @@ module.exports = {
           return res.send({ status: 'ok', next: _.pick(next, 'title', '_id', '_url') });
         });
       });
-
+    
       self.route('post', 'approve', self.requireAdmin, function(req, res) {
         // TODO if we lower the bar for this from self.requireAdmin, then we'll
         // need to check the permissions properly on the docs
-        return self.apos.docs.db.update({
-          _id: { $in: self.apos.launder.ids(req.body.ids) },
-          siteReviewApproved: { $exists: 1 }
-        }, {
-          $set: {
-            siteReviewApproved: true
-          }
-        }, {
-          multi: true
+        var review;
+        var ids = self.apos.launder.ids(req.body.ids);
+        return self.getActiveReview(req)
+        .then(function(r) {
+          review = r;
         })
-        .then(function(result) {
+        .then(function() {
+          return self.apos.docs.db.update({
+            _id: { $in: ids },
+            siteReviewApproved: { $exists: 1 }
+          }, {
+            $set: {
+              siteReviewApproved: true
+            }
+          }, {
+            multi: true
+          })
+        })
+        .then(function() {
+          return self.apos.docs.db.update({
+            _id: review._id
+          }, {
+            $inc: {
+              reviewed: ids.length
+            }
+          });
+        })
+        .then(function() {
           return self.getNextDoc(req);
         })
         .then(function(next) {
@@ -199,7 +216,7 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
-
+    
       self.route('post', 'reject', self.requireAdmin, function(req, res) {
         return self.getActiveReview(req)
         .then(function(review) {
@@ -215,7 +232,7 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
-
+    
       self.route('get', 'attachments', self.deployPermissions, function(req, res) {
         return self.apos.attachments.db.find({}).toArray()
         .then(function(attachments) {
@@ -226,13 +243,13 @@ module.exports = {
           res.status(500).send('error');
         });
       });
-  
+    
       // Accept information about new attachments (`inserts`),
       // and new crops of attachments we already have (`crops`).
       // This should be preceded by the use of /attachments/upload to
       // sync individual files before the metadata appears in the db,
       // leading to their possible use
-  
+    
       self.route('post', 'attachments', self.deployPermissions, function(req, res) {
         if (!Array.isArray(req.body.inserts)) {
           return res.status(400).send('bad request');
@@ -291,7 +308,7 @@ module.exports = {
           return res.status(500).send('error');
         });
       });
-  
+    
       // Accept a single file at a specified uploadfs path
       self.route('post', 'attachments/upload', self.apos.middleware.files, self.deployPermissions, function(req, res) {
         var copyIn = Promise.promisify(self.apos.attachments.uploadfs.copyIn);
@@ -320,7 +337,7 @@ module.exports = {
           res.status(500).send('error');
         });
       });
-
+    
       // UI route to initiate a deployment. Replies with `{ jobId: nnn }`,
       // suitable for calling `apos.modules['apostrophe-jobs'].progress(jobId)`.
       //
@@ -370,7 +387,7 @@ module.exports = {
               throw new Error('upload of locale failed');
             }
             return monitorUntilDone();
-
+    
             function monitorUntilDone() {
               return self.remoteApi('locale/progress', {
                 method: 'POST',
@@ -412,7 +429,7 @@ module.exports = {
           });
         }
       });
-
+    
       self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
         var file = req.files && req.files.file;
@@ -426,7 +443,7 @@ module.exports = {
           return self.importLocale(req, file.path);
         }
       });
-
+    
       // The regular job-monitoring route is CSRF protected and
       // it renders markup we don't care about. Provide our own
       // access to the job object. TODO: think about whether
@@ -448,7 +465,6 @@ module.exports = {
           return res.status(500).send('error');
         });
       });
-  
     };
 
     self.addCsrfExceptions = function() {
@@ -479,6 +495,18 @@ module.exports = {
               siteReviewApproved: true
             }
           }).then(function() {
+            return self.getActiveReview(req)
+          })
+          .then(function(review) {
+            return self.apos.docs.db.update({
+              _id: review._id
+            }, {
+              $inc: {
+                reviewed: 1
+              }
+            });
+          })
+          .then(function() {
             return self.getNextDoc(req);
           });
         }
@@ -555,16 +583,32 @@ module.exports = {
         _.each(docs, function(doc, i) {
           doc.sortRank = i;
         });
-        return async.eachLimit(docs, 5, function(doc, callback) {
+        return async.series([
+          setTotal,
+          storeRanks
+        ], callback);
+        function setTotal(callback) {
           return self.apos.docs.db.update({
-            _id: doc._id
+            _id: piece._id
           }, {
             $set: {
-              siteReviewRank: doc.sortRank,
-              siteReviewApproved: null
+              total: docs.length,
+              reviewed: 0
             }
           }, callback);
-        }, callback);
+        }
+        function storeRanks(callback) {
+          return async.eachLimit(docs, 5, function(doc, callback) {
+            return self.apos.docs.db.update({
+              _id: doc._id
+            }, {
+              $set: {
+                siteReviewRank: doc.sortRank,
+                siteReviewApproved: null
+              }
+            }, callback);
+          }, callback);
+        }
       });
     };
 
