@@ -345,7 +345,9 @@ module.exports = {
         function run(req, reporting) {
           reporting.setTotal(4);
           reporting.good();
-          return self.deployAttachments(options)
+          return Promise.try(function() {
+            return self.deployAttachments(options);
+          })
           .then(function() {
             reporting.good();
             return self.exportLocale(req)
@@ -1027,16 +1029,18 @@ module.exports = {
     // `deployTo` option is an array, returns the entry whose `name`
     // property matches the `deployTo` property of the `options` object
     // passed to this method.
+    //
+    // If the configuration is invalid an exception is thrown.
     
     self.resolveDeployTo = function(options) {
       var deployTo = self.options.deployTo;
       if (!deployTo) {
-        return Promise.reject(new Error('deployTo module-level option must be configured'));
+        throw new Error('deployTo module-level option must be configured');
       }
       if (Array.isArray(deployTo)) {
         deployTo = _.find(deployTo, { name: options.deployTo });
         if (!deployTo) {
-          return Promise.reject(new Error('Since deployTo is an array in the module configuration, the deployTo option to the remoteApi method must match the name property of one server in that array'));
+          throw new Error('Since deployTo is an array in the module configuration, the deployTo option to the remoteApi method must match the name property of one server in that array');
         }
       }
       return deployTo;
