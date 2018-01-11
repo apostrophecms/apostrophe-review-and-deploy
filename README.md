@@ -125,6 +125,49 @@ Once these options are in place, a completed review will be listed as "Deployabl
 
 The content will be deployed to the receiving site and become live. This process may take considerable time depending on the size of the site.
 
+### Deploying to multiple servers
+
+If desired, you may specify multiple servers using an array:
+
+```javascript
+    deployTo: [
+      {
+        baseUrl: 'https://SERVER1.JUST-AN-EXAMPLE.com',
+        prefix: '',
+        apikey: 'XXXXXXXXX'
+      },
+      {
+        baseUrl: 'https://SERVER2.JUST-AN-EXAMPLE.com',
+        prefix: '',
+        apikey: 'XXXXXXXXX'
+      }
+    }
+```
+
+If multiple servers are configured, then by default deployments will be sent to all of them.
+
+### Locale-specific servers
+
+You may optionally specify certain locales to be deployed to each server. Note that you may combine such servers with servers that still receive all locales. In this example, `CHINA-SERVER` receives only deployments to the `zh` locale, while `MAIN-SERVER` receives all deployments:
+
+```javascript
+    deployTo: [
+      {
+        // receives only zh
+        baseUrl: 'https://CHINA-SERVER.JUST-AN-EXAMPLE.com',
+        prefix: '',
+        apikey: 'XXXXXXXXX',
+        locales: [ 'zh' ]
+      },
+      {
+        // receives all
+        baseUrl: 'https://MAIN-SERVER.JUST-AN-EXAMPLE.com',
+        prefix: '',
+        apikey: 'XXXXXXXXX'
+      }
+    }
+```
+
 ### Rolling back deployments
 
 Currently previous content is correctly migrated to a "rollback locale" for later restoration, but the UI for rolling it back does not yet exist (TODO: implement this).
