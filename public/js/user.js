@@ -3,11 +3,26 @@ apos.define('apostrophe-review-and-deploy', {
   afterConstruct: function(self) {
     self.enableClickHandlers();
     self.enableReviewingClass();
+    self.enableModified();
   },
   construct: function(self, options) {
+    
     var workflow = apos.modules['apostrophe-workflow'];
+
+    self.enableModified = function() {
+      self.api('modified', {
+        ids: _.uniq(workflow.getDocIds().concat([ self.options.contextId ]))
+      }, function(data) {
+        if (data.status === 'ok') {
+          if (data.modified) {
+            $('[data-apos-review-modified]').addClass('apos-review-modified--active');
+          }
+        }
+      });
+    };
+
     self.enableClickHandlers = function() {
-      apos.ui.link('apos-site-review', 'approve', function() {
+      apos.ui.link('apos-review', 'approve', function() {
         apos.ui.globalBusy(true);
         self.api('approve', {
           ids: _.uniq(workflow.getDocIds().concat([ self.options.contextId ]))
@@ -17,14 +32,14 @@ apos.define('apostrophe-review-and-deploy', {
           } else if (data.status === 'Ready to Deploy') {
             apos.ui.globalBusy(false);
             apos.notify('The review is complete.', { status: 'success' });
-            $('[data-apos-site-review-menu]').hide();
+            $('[data-apos-review-menu]').hide();
           } else {
             apos.ui.globalBusy(false);
             apos.notify('An error occurred during the review process.', { status: 'error' });
           }
         });
       });
-      apos.ui.link('apos-site-review', 'reject', function() {
+      apos.ui.link('apos-review', 'reject', function() {
         apos.ui.globalBusy(true);
         self.api('reject', {
           _id: self.options.contextId
@@ -36,7 +51,7 @@ apos.define('apostrophe-review-and-deploy', {
           }
         });
       });
-      apos.ui.link('apos-site-review', 'next', function() {
+      apos.ui.link('apos-review', 'next', function() {
         apos.ui.globalBusy(true);
         self.next();
       });
@@ -57,7 +72,7 @@ apos.define('apostrophe-review-and-deploy', {
     self.enableReviewingClass = function() {
       if (self.options.reviewing) {
         // Under review
-        $('body').addClass('apos-site-review-reviewing');
+        $('body').addClass('apos-review-reviewing');
       }
     };
   }

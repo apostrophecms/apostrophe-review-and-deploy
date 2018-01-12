@@ -4,24 +4,27 @@
   (
     (data.siteReview.review.reviewed / data.siteReview.review.total) * 100 | round(2)
   ) + '%', 
-  { action: 'site-review-percentage' }
+  { action: 'review-percentage' }
 ) }}
 {% endmacro %}
 {% if (data.workflowMode == 'live') and data.siteReview.review %}
-  <div class="apos-site-review-menu" data-apos-site-review-menu>
-    <div class="apos-button apos-button--group">
-    </div>
+  <div class="apos-review-menu" data-apos-review-menu>
     {% if data.siteReview.unreviewed %}
       <div class="apos-button apos-button--group">
         {{ percentage() }}
-        {{ buttons.inGroup('Approve Review', { action: 'site-review-approve' }) }}
-        {{ buttons.inGroup('Reject Review', { action: 'site-review-reject' }) }}
+        {{ buttons.base(
+          'Modified',
+          { action: 'review-modified' },
+          'apos-review-modified apos-button--in-group'
+        )}}
+        {{ buttons.inGroup('Approve Review', { action: 'review-approve' }) }}
+        {{ buttons.inGroup('Reject Review', { action: 'review-reject' }) }}
       </div>
     {% else %}
       <div class="apos-button apos-button--group">
         {{ percentage() }}
-        {{ buttons.disabled('Reviewed', { action: 'site-review-reviewed' }) }}
-        {{ buttons.inGroup('Review Next', { action: 'site-review-next' }) }}
+        {{ buttons.disabled('Reviewed', { action: 'review-reviewed' }) }}
+        {{ buttons.inGroup('Review Next', { action: 'review-next' }) }}
       </div>
     {% endif %}
   </div>
