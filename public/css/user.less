@@ -1,9 +1,17 @@
-.apos-ui .apos-site-review-menu {
+.apos-ui .apos-review-menu {
   display: inline-block;
   margin-left: 7px;
 }
 
+.apos-ui .apos-review-menu .apos-review-modified {
+  display: none;
+  &.apos-review-modified--active {
+    display: inline-block;
+  }
+  color: @apos-red;
+}
+
 // You cannot commit during a review
-.apos-site-review-reviewing [data-apos-workflow-commit] {
+.apos-review-reviewing [data-apos-workflow-commit] {
   display: none !important;
 }

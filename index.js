@@ -148,6 +148,29 @@ module.exports = {
           return res.send({ status: 'ok', next: _.pick(next, 'title', '_id', '_url') });
         });
       });
+
+      self.route('post', 'modified', self.requireAdmin, function(req, res) {
+        var ids = self.apos.launder.ids(req.body.ids);
+        return self.getLastDeployedReview(req)
+        .then(function(deployed) {
+          return Promise.map(ids, function(id) {
+            return workflow.db.findOne({ toId: id, createdAt: { $gte: deployed.createdAt } });
+          });
+        })
+        .then(function(maybeCommits) {
+          if (_.find(maybeCommits, function(commit) {
+            return !!commit;
+          })) {
+            return res.send({ status: 'ok', modified: true });  
+          } else {
+            return res.send({ status: 'ok', modified: false });  
+          }
+        })
+        .catch(function(err) {
+          console.error(err);
+          return res.send({ status: 'error' });
+        });
+      });
     
       self.route('post', 'approve', self.requireAdmin, function(req, res) {
         // TODO if we lower the bar for this from self.requireAdmin, then we'll
@@ -507,6 +530,10 @@ module.exports = {
 
     self.getActiveReview = function(req) {
       return self.find(req, { status: 'In Progress' }).toObject();
+    };
+
+    self.getLastDeployedReview = function(req) {
+      return self.find(req, { status: 'Deployed' }).sort({ createdAt: -1 }).toObject();
     };
 
     // If a new review is created for a given locale, any review previously "In
