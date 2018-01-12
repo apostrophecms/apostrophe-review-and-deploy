@@ -153,6 +153,13 @@ module.exports = {
         var ids = self.apos.launder.ids(req.body.ids);
         return self.getLastDeployedReview(req)
         .then(function(deployed) {
+          if (!deployed) {
+            // Treat this as definitely modified, as they
+            // have never deployed it before, i.e. the
+            // production site is presumed empty and now
+            // there's a thing
+            return [ true ];
+          }
           return Promise.map(ids, function(id) {
             return workflow.db.findOne({ toId: id, createdAt: { $gte: deployed.createdAt } });
           });
