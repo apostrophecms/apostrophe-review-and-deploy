@@ -184,11 +184,18 @@ module.exports = {
         // need to check the permissions properly on the docs
         var review;
         var ids = self.apos.launder.ids(req.body.ids);
+        var count;
         return self.getActiveReview(req)
         .then(function(r) {
           review = r;
         })
         .then(function() {
+          return self.apos.docs.db.count({
+            _id: { $in: ids },
+            siteReviewApproved: null
+          });
+        })
+        .then(function(count) {
           return self.apos.docs.db.update({
             _id: { $in: ids },
             siteReviewApproved: { $exists: 1 }
@@ -199,13 +206,16 @@ module.exports = {
           }, {
             multi: true
           })
+          .then(function() {
+            return count;
+          });
         })
-        .then(function() {
+        .then(function(count) {
           return self.apos.docs.db.update({
             _id: review._id
           }, {
             $inc: {
-              reviewed: ids.length
+              reviewed: count
             }
           });
         })
