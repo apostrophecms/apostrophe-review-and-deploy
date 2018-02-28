@@ -2,7 +2,7 @@
 {% macro percentage() %}
 {{ buttons.disabled(
   (
-    (data.siteReview.review.reviewed / data.siteReview.review.total) * 100 | round(2)
+    ((data.siteReview.review.reviewed / data.siteReview.review.total) * 100) | round(2)
   ) + '%', 
   { action: 'review-percentage' }
 ) }}
