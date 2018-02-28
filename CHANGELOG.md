@@ -1,3 +1,12 @@
+## 2.2.1
+
+Unit tests passing.
+
+Regression tests passing.
+
+* The percentage of completion is now proof against double-reporting, which should prevent percentages in excess of 100%.
+* The percentage of completion is formatted in a readable fashion (only two digits after decimal point).
+
 ## 2.2.0
 
 Unit tests passing.
