@@ -90,12 +90,15 @@ module.exports = {
     options.removeFilters = [ 'published' ].concat(options.removeFilters || []);
 
   },
-  
+
   afterConstruct: function(self, callback) {
     self.composeDeployTo();
     self.excludeFromWorkflow();
     self.addRoutes();
     self.apos.pages.addAfterContextMenu(self.menu);
+    self.apos.pages.addAfterContextMenu(self.visualDiff);
+    self.apos.utils.log('***** here');
+    // add backstop to the view here
     self.addCsrfExceptions();
     return self.ensureIndexes(callback);
   },
@@ -111,6 +114,24 @@ module.exports = {
         return '';
       }
       return self.partial('menu', { workflowMode: req.session.workflowMode });
+    };
+
+    self.visualDiff = function(req) {
+      var deployToArray = self.getDeployToArrayForCurrentLocale(req);
+      var deployToPath = deployToArray[0].baseUrl + req.data.page.path;
+      var deployFromPath = req.data.absoluteUrl;
+
+      if (!self.isAdmin(req)) {
+        return '';
+      }
+      
+      return self.partial('visualDiff',
+        {
+          workflowMode: req.session.workflowMode,
+          deployToPath: deployToPath,
+          deployFromPath: deployFromPath,
+        }
+      );
     };
 
     var superPageBeforeSend = self.pageBeforeSend;
@@ -168,9 +189,9 @@ module.exports = {
           if (_.find(maybeCommits, function(commit) {
             return !!commit;
           })) {
-            return res.send({ status: 'ok', modified: true });  
+            return res.send({ status: 'ok', modified: true });
           } else {
-            return res.send({ status: 'ok', modified: false });  
+            return res.send({ status: 'ok', modified: false });
           }
         })
         .catch(function(err) {
@@ -178,7 +199,7 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
-    
+
       self.route('post', 'approve', self.requireAdmin, function(req, res) {
         // TODO if we lower the bar for this from self.requireAdmin, then we'll
         // need to check the permissions properly on the docs
@@ -248,7 +269,7 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
-    
+
       self.route('post', 'reject', self.requireAdmin, function(req, res) {
         return self.getActiveReview(req)
         .then(function(review) {
@@ -264,7 +285,7 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
-    
+
       self.route('get', 'attachments', self.deployPermissions, function(req, res) {
         return self.apos.attachments.db.find({}).toArray()
         .then(function(attachments) {
@@ -275,13 +296,13 @@ module.exports = {
           res.status(500).send('error');
         });
       });
-    
+
       // Accept information about new attachments (`inserts`),
       // and new crops of attachments we already have (`crops`).
       // This should be preceded by the use of /attachments/upload to
       // sync individual files before the metadata appears in the db,
       // leading to their possible use
-    
+
       self.route('post', 'attachments', self.deployPermissions, function(req, res) {
         if (!Array.isArray(req.body.inserts)) {
           return res.status(400).send('bad request');
@@ -340,7 +361,7 @@ module.exports = {
           return res.status(500).send('error');
         });
       });
-    
+
       // Accept a single file at a specified uploadfs path
       self.route('post', 'attachments/upload', self.apos.middleware.files, self.deployPermissions, function(req, res) {
         var copyIn = Promise.promisify(self.apos.attachments.uploadfs.copyIn);
@@ -369,7 +390,7 @@ module.exports = {
           res.status(500).send('error');
         });
       });
-    
+
       // UI route to initiate a deployment. Replies with `{ jobId: nnn }`,
       // suitable for calling `apos.modules['apostrophe-jobs'].progress(jobId)`.
 
@@ -413,7 +434,7 @@ module.exports = {
             .then(function(result) {
               reporting.good();
               return monitorUntilDone();
-    
+
               function monitorUntilDone() {
                 return self.remoteApi('locale/progress', {
                   method: 'POST',
@@ -460,7 +481,7 @@ module.exports = {
           });
         }
       });
-    
+
       self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
         var file = req.files && req.files.file;
@@ -474,7 +495,7 @@ module.exports = {
           return self.importLocale(req, file.path);
         }
       });
-    
+
       // The regular job-monitoring route is CSRF protected and
       // it renders markup we don't care about. Provide our own
       // access to the job object. TODO: think about whether
@@ -687,7 +708,7 @@ module.exports = {
     // Removing that file is your responsibility. The locale exported
     // is the live version of the one specified by `req.locale`.
     // Permissions are not checked.
-    
+
     self.exportLocale = function(req) {
       var locale = workflow.liveify(req.locale);
       var out = zlib.createGzip();
@@ -754,7 +775,7 @@ module.exports = {
     // the original locale in the BSON data.
     //
     // Permissions are not checked.
-    
+
     self.importLocale = function(req, filename) {
       var locale = workflow.liveify(req.locale);
       var zin = zlib.createGunzip();
@@ -805,7 +826,7 @@ module.exports = {
                 doc.workflowLocaleForPathIndex = doc.workflowLocale;
               }
               replaceIdsRecursively(doc);
-              
+
               return self.apos.docs.db.insert(doc, callback);
             }
           }
@@ -1104,7 +1125,7 @@ module.exports = {
     // If a `deployTo` object was passed to this method, return that,
     // otherwise the sole configured `deployTo` object. For bc;
     // newer code always passes an option.
-    
+
     self.resolveDeployTo = function(options) {
       return options.deployTo || self.deployTo[0];
     };

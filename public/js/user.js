@@ -6,7 +6,7 @@ apos.define('apostrophe-review-and-deploy', {
     self.enableModified();
   },
   construct: function(self, options) {
-    
+
     var workflow = apos.modules['apostrophe-workflow'];
 
     self.enableModified = function() {
@@ -39,6 +39,7 @@ apos.define('apostrophe-review-and-deploy', {
           }
         });
       });
+
       apos.ui.link('apos-review', 'reject', function() {
         apos.ui.globalBusy(true);
         self.api('reject', {
@@ -51,11 +52,13 @@ apos.define('apostrophe-review-and-deploy', {
           }
         });
       });
+
       apos.ui.link('apos-review', 'next', function() {
         apos.ui.globalBusy(true);
         self.next();
       });
     },
+
     // Navigate to next doc requiring review, if any
     self.next = function() {
       return self.api('next', {}, function(data) {
