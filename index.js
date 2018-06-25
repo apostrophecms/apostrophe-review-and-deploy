@@ -8,6 +8,7 @@ var zlib = require('zlib');
 var cuid = require('cuid');
 var request = require('request-promise');
 var expressBearerToken = require('express-bearer-token')();
+const backstop = require('backstopjs');
 
 module.exports = {
   extend: 'apostrophe-pieces',
@@ -121,8 +122,74 @@ module.exports = {
       var deployToPath = deployToArray[0].baseUrl + req.data.page.path;
       var deployFromPath = req.data.absoluteUrl;
 
+      self.apos.utils.log('***** visualDiff');
+      self.apos.utils.log('To');
+      self.apos.utils.log(deployToPath);
+      self.apos.utils.log('siteReview.review');
+      self.apos.utils.log(req.data.siteReview.review);
+
       if (!self.isAdmin(req)) {
         return '';
+      }
+
+      if (req.data.siteReview.review) {
+        backstop('test', {
+          config: {
+            "id": "backstop_default",
+            "viewports": [
+              {
+                "label": "phone",
+                "width": 320,
+                "height": 480
+              },
+              {
+                "label": "tablet",
+                "width": 1024,
+                "height": 768
+              }
+            ],
+            "onBeforeScript": "puppet/onBefore.js",
+            "onReadyScript": "puppet/onReady.js",
+            "scenarios": [
+              {
+                "label": "BackstopJS Homepage",
+                "cookiePath": "backstop_data/engine_scripts/cookies.json",
+                "url": "http://localhost:3002/blog",
+                "referenceUrl": "http://localhost:3002/blog",
+                "readyEvent": "",
+                "readySelector": "",
+                "delay": 0,
+                "hideSelectors": [],
+                "removeSelectors": [],
+                "hoverSelector": "",
+                "clickSelector": "",
+                "postInteractionWait": 0,
+                "selectors": [],
+                "selectorExpansion": true,
+                "misMatchThreshold" : 0.1,
+                "requireSameDimensions": true
+              }
+            ],
+            "paths": {
+              "bitmaps_reference": "backstop_data/bitmaps_reference",
+              "bitmaps_test": "backstop_data/bitmaps_test",
+              "engine_scripts": "backstop_data/engine_scripts",
+              "html_report": "backstop_data/html_report",
+              "ci_report": "backstop_data/ci_report"
+            },
+            "report": ["browser"],
+            "engine": "puppeteer",
+            "engineFlags": [],
+            "asyncCaptureLimit": 5,
+            "asyncCompareLimit": 50,
+            "debug": false,
+            "debugWindow": false
+          }
+        }).then(() => {
+          self.apos.utils.log('***** NO DIFFS');
+        }).catch(() => {
+          self.apos.utils.log('***** TEST ERRORS, but keep going.');
+        });
       }
       
       return self.partial('visualDiff',
