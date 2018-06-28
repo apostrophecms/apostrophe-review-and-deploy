@@ -1,6 +1,6 @@
 [
   {
-    "domain": ".www.yourdomain.com",
+    "domain": "localhost",
     "path": "/",
     "name": "yourCookieName",
     "value": "yourCookieValue",

@@ -9,6 +9,20 @@ var cuid = require('cuid');
 var request = require('request-promise');
 var expressBearerToken = require('express-bearer-token')();
 const backstop = require('backstopjs');
+const path = require('path');
+
+var backstopConfig = path.join(__dirname, 'backstop-config.json')
+backstopConfig = JSON.parse(fs.readFileSync(backstopConfig));
+
+// We will need to change these to be a location in the cloud,
+//   instead of on the local file system.
+var backstopPaths = {
+  "bitmaps_reference": path.join(__dirname, "/backstop_data/bitmaps_reference"),
+  "bitmaps_test": path.join(__dirname, "/backstop_data/bitmaps_test"),
+  "engine_scripts": path.join(__dirname, "/backstop_data/engine_scripts"),
+  "html_report": path.join(__dirname, "/backstop_data/html_report"),
+  "ci_report": path.join(__dirname, "/backstop_data/ci_report")
+}
 
 module.exports = {
   extend: 'apostrophe-pieces',
@@ -98,7 +112,6 @@ module.exports = {
     self.addRoutes();
     self.apos.pages.addAfterContextMenu(self.menu);
     self.apos.pages.addAfterContextMenu(self.visualDiff);
-    self.apos.utils.log('***** here');
     // add backstop to the view here
     self.addCsrfExceptions();
     return self.ensureIndexes(callback);
@@ -117,86 +130,38 @@ module.exports = {
       return self.partial('menu', { workflowMode: req.session.workflowMode });
     };
 
-    self.visualDiff = function(req) {
+    self.generateReport = function(req) {
       var deployToArray = self.getDeployToArrayForCurrentLocale(req);
-      var deployToPath = deployToArray[0].baseUrl + req.data.page.path;
-      var deployFromPath = req.data.absoluteUrl;
 
-      self.apos.utils.log('***** visualDiff');
-      self.apos.utils.log('To');
-      self.apos.utils.log(deployToPath);
-      self.apos.utils.log('siteReview.review');
-      self.apos.utils.log(req.data.siteReview.review);
+      // attach this variable to the req object.
+      req.deployToPath = deployToArray[0].baseUrl + req.data.page.path;
+      req.deployFromPath = req.data.absoluteUrl;
+      req.backstopReport = path.join(__dirname, "/backstop_data/html_report/index.html");
 
+      backstopConfig.cookiePath = path.join(__dirname, "/backstop_data/engine_scripts/cookies.json");
+      backstopConfig.paths = backstopPaths;
+
+      backstopConfig.scenarios[0].url = req.deployToPath;
+      backstopConfig.scenarios[0].referenceUrl = req.deployFromPath;
+
+      return backstop('reference', {
+        config: backstopConfig
+      }).then(() => {
+        backstop('test', { config: backstopConfig })
+      });
+    }
+
+    self.visualDiff = function(req) {
       if (!self.isAdmin(req)) {
         return '';
       }
-
-      if (req.data.siteReview.review) {
-        backstop('test', {
-          config: {
-            "id": "backstop_default",
-            "viewports": [
-              {
-                "label": "phone",
-                "width": 320,
-                "height": 480
-              },
-              {
-                "label": "tablet",
-                "width": 1024,
-                "height": 768
-              }
-            ],
-            "onBeforeScript": "puppet/onBefore.js",
-            "onReadyScript": "puppet/onReady.js",
-            "scenarios": [
-              {
-                "label": "BackstopJS Homepage",
-                "cookiePath": "backstop_data/engine_scripts/cookies.json",
-                "url": "http://localhost:3002/blog",
-                "referenceUrl": "http://localhost:3002/blog",
-                "readyEvent": "",
-                "readySelector": "",
-                "delay": 0,
-                "hideSelectors": [],
-                "removeSelectors": [],
-                "hoverSelector": "",
-                "clickSelector": "",
-                "postInteractionWait": 0,
-                "selectors": [],
-                "selectorExpansion": true,
-                "misMatchThreshold" : 0.1,
-                "requireSameDimensions": true
-              }
-            ],
-            "paths": {
-              "bitmaps_reference": "backstop_data/bitmaps_reference",
-              "bitmaps_test": "backstop_data/bitmaps_test",
-              "engine_scripts": "backstop_data/engine_scripts",
-              "html_report": "backstop_data/html_report",
-              "ci_report": "backstop_data/ci_report"
-            },
-            "report": ["browser"],
-            "engine": "puppeteer",
-            "engineFlags": [],
-            "asyncCaptureLimit": 5,
-            "asyncCompareLimit": 50,
-            "debug": false,
-            "debugWindow": false
-          }
-        }).then(() => {
-          self.apos.utils.log('***** NO DIFFS');
-        }).catch(() => {
-          self.apos.utils.log('***** TEST ERRORS, but keep going.');
-        });
-      }
-      
+      self.apos.utils.log('***** RETURN THE DIFFS');
       return self.partial('visualDiff',
         {
           workflowMode: req.session.workflowMode,
-          deployToPath: deployToPath,
-          deployFromPath: deployFromPath,
+          deployToPath: req.deployToPath,
+          deployFromPath: req.deployFromPath,
+          report: req.backstopReport
         }
       );
     };
@@ -207,7 +172,15 @@ module.exports = {
         superPageBeforeSend(req);
         return callback(null);
       }
+
       return self.getActiveReview(req)
+      .then(function() {
+        // returns a promise and passes it to the next item in the chain.
+        // knows about req because it exists in the enclosure.
+
+        // Tom: Might need some logic around this to only run it when it is an active review.
+        return self.generateReport(req);
+      })
       .then(function(review) {
         req.data.siteReview = req.data.siteReview || {};
         req.data.siteReview.review = review;
