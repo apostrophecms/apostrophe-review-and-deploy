@@ -10,19 +10,10 @@ var request = require('request-promise');
 var expressBearerToken = require('express-bearer-token')();
 const backstop = require('backstopjs');
 const path = require('path');
+const cloudStatic = require('cloud-static');
 
 var backstopConfig = path.join(__dirname, 'backstop-config.json')
 backstopConfig = JSON.parse(fs.readFileSync(backstopConfig));
-
-// We will need to change these to be a location in the cloud,
-//   instead of on the local file system.
-var backstopPaths = {
-  "bitmaps_reference": path.join(__dirname, "/backstop_data/bitmaps_reference"),
-  "bitmaps_test": path.join(__dirname, "/backstop_data/bitmaps_test"),
-  "engine_scripts": path.join(__dirname, "/backstop_data/engine_scripts"),
-  "html_report": path.join(__dirname, "/backstop_data/html_report"),
-  "ci_report": path.join(__dirname, "/backstop_data/ci_report")
-}
 
 module.exports = {
   extend: 'apostrophe-pieces',
@@ -107,6 +98,7 @@ module.exports = {
   },
 
   afterConstruct: function(self, callback) {
+    self.enableCloudStatic();
     self.composeDeployTo();
     self.excludeFromWorkflow();
     self.addRoutes();
@@ -132,56 +124,98 @@ module.exports = {
 
     self.generateReport = function(req) {
       var deployToArray = self.getDeployToArrayForCurrentLocale(req);
+      var context = req.data.page || req.data.piece;
+      return self.getProductionUrl(req, context._id).then((url) => {
+        req.deployFromPath = req.data.absoluteUrl;
+        req.deployToPath = url;
+        req.backstopReport = self.apos.rootDir + "/data/backstop_data/html_report/index.html";
+        req.backstopReportUrl = self.cs.getUrl('/site-review/report/html_report/index.html');
 
-      // attach this variable to the req object.
-      req.deployToPath = deployToArray[0].baseUrl + req.data.page.path;
-      req.deployFromPath = req.data.absoluteUrl;
-      req.backstopReport = path.join(__dirname, "/backstop_data/html_report/index.html");
+        // backstopConfig.cookiePath = path.join(__dirname, "/backstop_data/engine_scripts/cookies.json");
+        var backstopPaths = {
+          "bitmaps_reference": self.apos.rootDir + "/data/backstop_data/bitmaps_reference",
+          "bitmaps_test": self.apos.rootDir + "/data/backstop_data/bitmaps_test",
+          "engine_scripts": self.apos.rootDir + "/data/backstop_data/engine_scripts",
+          "html_report": self.apos.rootDir + "/data/backstop_data/html_report",
+          "ci_report": self.apos.rootDir + "/data/backstop_data/ci_report"
+        };
 
-      backstopConfig.cookiePath = path.join(__dirname, "/backstop_data/engine_scripts/cookies.json");
-      backstopConfig.paths = backstopPaths;
+        backstopConfig.paths = backstopPaths;
 
-      backstopConfig.scenarios[0].url = req.deployToPath;
-      backstopConfig.scenarios[0].referenceUrl = req.deployFromPath;
-
-      return backstop('reference', {
-        config: backstopConfig
+        backstopConfig.scenarios[0].url = req.deployToPath;
+        backstopConfig.scenarios[0].referenceUrl = req.deployFromPath;
+        return backstop('reference', {
+          config: backstopConfig
+        });
       }).then(() => {
-        backstop('test', { config: backstopConfig })
+        return backstop('test', { config: backstopConfig }).catch(() => {
+          // "Test failed," i.e. the report shows a difference. Not fatal
+        });
+      }).then(() => {
+        // This isn't very unique, but it's impractical to review reports in parallel anyway
+        return self.cs.syncFolder(self.apos.rootDir + "/data/backstop_data", "/site-review/report");
       });
-    }
+    };
+
+    // Obtains a production URL for the given doc _id. Returns a
+    // promise. _id must be in the current locale.
+
+    self.getProductionUrl = function(req, _id) {
+      var deployToArray = self.getDeployToArrayForCurrentLocale(req);
+      return self.remoteApi('url', {
+        method: 'POST',
+        json: true,
+        body: {
+          _id: _id,
+          locale: req.locale
+        }
+      }, {
+        deployTo: deployToArray[0]
+      })
+      .then(function(result) {
+        if (result.status === 'ok') {
+          return result.url;
+        } else {
+          throw new Error('url remote api failed');
+        }
+      });
+    };
 
     self.visualDiff = function(req) {
       if (!self.isAdmin(req)) {
         return '';
       }
-      self.apos.utils.log('***** RETURN THE DIFFS');
       return self.partial('visualDiff',
         {
           workflowMode: req.session.workflowMode,
           deployToPath: req.deployToPath,
           deployFromPath: req.deployFromPath,
-          report: req.backstopReport
+          report: req.backstopReportUrl
         }
       );
     };
 
     var superPageBeforeSend = self.pageBeforeSend;
     self.pageBeforeSend = function(req, callback) {
+      var review;
       if (!self.isAdmin(req)) {
         superPageBeforeSend(req);
         return callback(null);
       }
 
       return self.getActiveReview(req)
-      .then(function() {
+      .then(function(_review) {
+        review = _review;
         // returns a promise and passes it to the next item in the chain.
         // knows about req because it exists in the enclosure.
 
-        // Tom: Might need some logic around this to only run it when it is an active review.
-        return self.generateReport(req);
+        if (review && (req.data.page || req.data.piece)) {
+          return self.generateReport(req);
+        } else {
+          return null;
+        }
       })
-      .then(function(review) {
+      .then(function() {
         req.data.siteReview = req.data.siteReview || {};
         req.data.siteReview.review = review;
         req.data.siteReview.contextDoc = req.data.piece || req.data.page;
@@ -557,11 +591,35 @@ module.exports = {
           return res.status(500).send('error');
         });
       });
+
+      self.route('post', 'url', self.deployPermissions, function(req, res) {
+        req.locale = self.apos.launder.string(req.body.locale);
+        return self.apos.docs.find(req, {
+          _id: self.apos.launder.id(req.body._id)
+        }).permission(false).toObject(function(err, doc) {
+          if (err) {
+            self.apos.utils.error(err);
+            return res.send({
+              status: 'error'
+            });
+          } else if (!doc) {
+            return res.send({
+              status: 'notfound'
+            });
+          } else {
+            return res.send({ 
+              status: 'ok',
+              url: doc._url
+            });
+          }
+        });
+      });
     };
 
     self.addCsrfExceptions = function() {
       self.apos.on('csrfExceptions', function(list) {
         list.push(self.action + '/locale');
+        list.push(self.action + '/url');
         list.push(self.action + '/locale/progress');
         list.push(self.action + '/deploy');
         list.push(self.action + '/attachments');
@@ -1141,8 +1199,8 @@ module.exports = {
       });
     };
 
-    // Invoke a remote API. A simple wrapper around request-promise
-    // build the correct URL. `requestOptions` is the usual `request` options object.
+    // Invoke a remote API. A simple wrapper around request-promise.
+    // `requestOptions` is the usual `request` options object.
     // `options` may contain `deployTo`; when the `deployTo` option for the
     // module is an array, `options.deployTo` must be one of those objects.
     //
@@ -1205,6 +1263,14 @@ module.exports = {
       } else if (self.options.deployTo) {
         self.deployTo = [ self.options.deployTo ];
       }
+    };
+
+    self.enableCloudStatic = function(callback) {
+      self.cs = cloudStatic();
+      return self.cs.init({
+        db: self.apos.db,
+        uploadfs: self.apos.attachments.uploadfs
+      }, callback);
     };
 
   }
