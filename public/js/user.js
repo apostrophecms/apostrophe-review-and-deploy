@@ -8,6 +8,11 @@ apos.define('apostrophe-review-and-deploy', {
   construct: function(self, options) {
     
     var workflow = apos.modules['apostrophe-workflow'];
+    if (!workflow) {
+      // Stand down when workflow is not present on the page
+      // (example: /login), do not throw errors
+      return;
+    }
 
     self.enableModified = function() {
       self.api('modified', {
