@@ -11,13 +11,10 @@ describe('apostrophe-review-and-deploy', function() {
   
   this.timeout(5000);
 
-  after(function() {
-    if (apos) {
-      apos.db.dropDatabase();
-    }
-    if (apos2) {
-      apos2.db.dropDatabase();
-    }
+  after(function(done) {
+    require('apostrophe/test-lib/util').destroy(apos, function() {
+      require('apostrophe/test-lib/util').destroy(apos2, done);
+    });
   });
 
   //////

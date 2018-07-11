@@ -1,3 +1,10 @@
+## 2.2.2
+
+Unit tests passing.
+
+* Browser-side js no longer throws an error if workflow is not active
+on the page (example: `/login`). No other changes.
+
 ## 2.2.1
 
 Unit tests passing.
