@@ -106,6 +106,10 @@ module.exports = {
     self.apos.pages.addAfterContextMenu(self.visualDiff);
     // add backstop to the view here
     self.addCsrfExceptions();
+
+    self.pushAsset('script', 'visual-diff', {
+      when: 'user'
+    });
     return self.ensureIndexes(callback);
   },
 
@@ -607,7 +611,7 @@ module.exports = {
               status: 'notfound'
             });
           } else {
-            return res.send({ 
+            return res.send({
               status: 'ok',
               url: doc._url
             });
