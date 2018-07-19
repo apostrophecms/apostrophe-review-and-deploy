@@ -5,6 +5,11 @@
       "label": "phone",
       "width": 320,
       "height": 480
+    },
+    {
+      "label": "desktop",
+      "width": 1280,
+      "height": 800
     }
   ],
   "onBeforeScript": "puppet/onBefore.js",
