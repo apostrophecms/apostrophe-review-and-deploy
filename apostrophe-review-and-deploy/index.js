@@ -8,12 +8,6 @@ var zlib = require('zlib');
 var cuid = require('cuid');
 var request = require('request-promise');
 var expressBearerToken = require('express-bearer-token')();
-const backstop = require('backstopjs');
-const path = require('path');
-const cloudStatic = require('cloud-static');
-
-var backstopConfig = path.join(__dirname, 'backstop-config.json')
-backstopConfig = JSON.parse(fs.readFileSync(backstopConfig));
 
 module.exports = {
   extend: 'apostrophe-pieces',
@@ -96,20 +90,13 @@ module.exports = {
     options.removeFilters = [ 'published' ].concat(options.removeFilters || []);
 
   },
-
+  
   afterConstruct: function(self, callback) {
-    self.enableCloudStatic();
     self.composeDeployTo();
     self.excludeFromWorkflow();
     self.addRoutes();
     self.apos.pages.addAfterContextMenu(self.menu);
-    self.apos.pages.addAfterContextMenu(self.visualDiff);
-    // add backstop to the view here
     self.addCsrfExceptions();
-
-    self.pushAsset('script', 'visual-diff', {
-      when: 'user'
-    });
     return self.ensureIndexes(callback);
   },
 
@@ -126,100 +113,14 @@ module.exports = {
       return self.partial('menu', { workflowMode: req.session.workflowMode });
     };
 
-    self.generateReport = function(req) {
-      var deployToArray = self.getDeployToArrayForCurrentLocale(req);
-      var context = req.data.page || req.data.piece;
-      return self.getProductionUrl(req, context).then((url) => {
-        req.deployFromPath = req.data.absoluteUrl;
-        req.deployToPath = url;
-        req.backstopReport = self.apos.rootDir + "/data/backstop_data/html_report/index.html";
-        req.backstopReportUrl = self.cs.getUrl('/site-review/report/html_report/index.html');
-
-        // backstopConfig.cookiePath = path.join(__dirname, "/backstop_data/engine_scripts/cookies.json");
-        var backstopPaths = {
-          "bitmaps_reference": self.apos.rootDir + "/data/backstop_data/bitmaps_reference",
-          "bitmaps_test": self.apos.rootDir + "/data/backstop_data/bitmaps_test",
-          "engine_scripts": self.apos.rootDir + "/data/backstop_data/engine_scripts",
-          "html_report": self.apos.rootDir + "/data/backstop_data/html_report",
-          "ci_report": self.apos.rootDir + "/data/backstop_data/ci_report"
-        };
-
-        backstopConfig.paths = backstopPaths;
-
-        backstopConfig.scenarios[0].url = req.deployToPath;
-        backstopConfig.scenarios[0].referenceUrl = req.deployFromPath;
-        return backstop('reference', {
-          config: backstopConfig
-        });
-      }).then(() => {
-        return backstop('test', { config: backstopConfig }).catch(() => {
-          // "Test failed," i.e. the report shows a difference. Not fatal
-        });
-      }).then(() => {
-        // This isn't very unique, but it's impractical to review reports in parallel anyway
-        return self.cs.syncFolder(self.apos.rootDir + "/data/backstop_data", "/site-review/report");
-      });
-    };
-
-    // Obtains a production URL for the given doc. Returns a
-    // promise. doc.workflowLocale must match the current locale.
-
-    self.getProductionUrl = function(req, doc) {
-      var deployToArray = self.getDeployToArrayForCurrentLocale(req);
-      return self.remoteApi('url', {
-        method: 'POST',
-        json: true,
-        body: {
-          workflowLocale: doc.workflowLocale,
-          workflowGuid: doc.workflowGuid
-        }
-      }, {
-        deployTo: deployToArray[0]
-      })
-      .then(function(result) {
-        if (result.status === 'ok') {
-          return result.url;
-        } else {
-          throw new Error('url remote api failed');
-        }
-      });
-    };
-
-    self.visualDiff = function(req) {
-      if (!self.isAdmin(req)) {
-        return '';
-      }
-      return self.partial('visualDiff',
-        {
-          workflowMode: req.session.workflowMode,
-          deployToPath: req.deployToPath,
-          deployFromPath: req.deployFromPath,
-          report: req.backstopReportUrl
-        }
-      );
-    };
-
     var superPageBeforeSend = self.pageBeforeSend;
     self.pageBeforeSend = function(req, callback) {
-      var review;
       if (!self.isAdmin(req)) {
         superPageBeforeSend(req);
         return callback(null);
       }
-
       return self.getActiveReview(req)
-      .then(function(_review) {
-        review = _review;
-        // returns a promise and passes it to the next item in the chain.
-        // knows about req because it exists in the enclosure.
-
-        if (review && (req.data.page || req.data.piece)) {
-          return self.generateReport(req);
-        } else {
-          return null;
-        }
-      })
-      .then(function() {
+      .then(function(review) {
         req.data.siteReview = req.data.siteReview || {};
         req.data.siteReview.review = review;
         req.data.siteReview.contextDoc = req.data.piece || req.data.page;
@@ -267,9 +168,9 @@ module.exports = {
           if (_.find(maybeCommits, function(commit) {
             return !!commit;
           })) {
-            return res.send({ status: 'ok', modified: true });
+            return res.send({ status: 'ok', modified: true });  
           } else {
-            return res.send({ status: 'ok', modified: false });
+            return res.send({ status: 'ok', modified: false });  
           }
         })
         .catch(function(err) {
@@ -277,7 +178,7 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
-
+    
       self.route('post', 'approve', self.requireAdmin, function(req, res) {
         // TODO if we lower the bar for this from self.requireAdmin, then we'll
         // need to check the permissions properly on the docs
@@ -340,11 +241,14 @@ module.exports = {
           }
         })
         .catch(function(err) {
-          console.error(err);
+          console.error('in catch clause', err);
+          if (err) {
+            console.error(err);
+          }
           return res.send({ status: 'error' });
         });
       });
-
+    
       self.route('post', 'reject', self.requireAdmin, function(req, res) {
         return self.getActiveReview(req)
         .then(function(review) {
@@ -360,7 +264,7 @@ module.exports = {
           return res.send({ status: 'error' });
         });
       });
-
+    
       self.route('get', 'attachments', self.deployPermissions, function(req, res) {
         return self.apos.attachments.db.find({}).toArray()
         .then(function(attachments) {
@@ -371,13 +275,13 @@ module.exports = {
           res.status(500).send('error');
         });
       });
-
+    
       // Accept information about new attachments (`inserts`),
       // and new crops of attachments we already have (`crops`).
       // This should be preceded by the use of /attachments/upload to
       // sync individual files before the metadata appears in the db,
       // leading to their possible use
-
+    
       self.route('post', 'attachments', self.deployPermissions, function(req, res) {
         if (!Array.isArray(req.body.inserts)) {
           return res.status(400).send('bad request');
@@ -436,13 +340,12 @@ module.exports = {
           return res.status(500).send('error');
         });
       });
-
+    
       // Accept a single file at a specified uploadfs path
       self.route('post', 'attachments/upload', self.apos.middleware.files, self.deployPermissions, function(req, res) {
         var copyIn = Promise.promisify(self.apos.attachments.uploadfs.copyIn);
         var metadata;
         var file;
-        let path = null;
         try {
           file = req.files.file;
           if (!file) {
@@ -455,7 +358,6 @@ module.exports = {
             throw new Error('sneaky');
           }
         } catch (e) {
-          console.error(e);
           return res.status(400).send('bad request');
         }
         return copyIn(file.path, path)
@@ -467,7 +369,7 @@ module.exports = {
           res.status(500).send('error');
         });
       });
-
+    
       // UI route to initiate a deployment. Replies with `{ jobId: nnn }`,
       // suitable for calling `apos.modules['apostrophe-jobs'].progress(jobId)`.
 
@@ -511,7 +413,7 @@ module.exports = {
             .then(function(result) {
               reporting.good();
               return monitorUntilDone();
-
+    
               function monitorUntilDone() {
                 return self.remoteApi('locale/progress', {
                   method: 'POST',
@@ -558,7 +460,7 @@ module.exports = {
           });
         }
       });
-
+    
       self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
         var file = req.files && req.files.file;
@@ -572,7 +474,7 @@ module.exports = {
           return self.importLocale(req, file.path);
         }
       });
-
+    
       // The regular job-monitoring route is CSRF protected and
       // it renders markup we don't care about. Provide our own
       // access to the job object. TODO: think about whether
@@ -594,38 +496,11 @@ module.exports = {
           return res.status(500).send('error');
         });
       });
-
-      self.route('post', 'url', self.deployPermissions, function(req, res) {
-        req.locale = self.apos.launder.string(req.body.workflowLocale);
-        var workflowGuid = self.apos.launder.id(req.body.workflowGuid);
-
-        return self.apos.docs.find(req, {
-          workflowLocale: req.locale,
-          workflowGuid: workflowGuid
-        }).permission(false).toObject(function(err, doc) {
-          if (err) {
-            self.apos.utils.error(err);
-            return res.send({
-              status: 'error'
-            });
-          } else if (!doc) {
-            return res.send({
-              status: 'notfound'
-            });
-          } else {
-            return res.send({
-              status: 'ok',
-              url: doc._url
-            });
-          }
-        });
-      });
     };
 
     self.addCsrfExceptions = function() {
       self.apos.on('csrfExceptions', function(list) {
         list.push(self.action + '/locale');
-        list.push(self.action + '/url');
         list.push(self.action + '/locale/progress');
         list.push(self.action + '/deploy');
         list.push(self.action + '/attachments');
@@ -812,7 +687,7 @@ module.exports = {
     // Removing that file is your responsibility. The locale exported
     // is the live version of the one specified by `req.locale`.
     // Permissions are not checked.
-
+    
     self.exportLocale = function(req) {
       var locale = workflow.liveify(req.locale);
       var out = zlib.createGzip();
@@ -879,7 +754,7 @@ module.exports = {
     // the original locale in the BSON data.
     //
     // Permissions are not checked.
-
+    
     self.importLocale = function(req, filename) {
       var locale = workflow.liveify(req.locale);
       var zin = zlib.createGunzip();
@@ -930,7 +805,7 @@ module.exports = {
                 doc.workflowLocaleForPathIndex = doc.workflowLocale;
               }
               replaceIdsRecursively(doc);
-
+              
               return self.apos.docs.db.insert(doc, callback);
             }
           }
@@ -1205,8 +1080,8 @@ module.exports = {
       });
     };
 
-    // Invoke a remote API. A simple wrapper around request-promise.
-    // `requestOptions` is the usual `request` options object.
+    // Invoke a remote API. A simple wrapper around request-promise
+    // build the correct URL. `requestOptions` is the usual `request` options object.
     // `options` may contain `deployTo`; when the `deployTo` option for the
     // module is an array, `options.deployTo` must be one of those objects.
     //
@@ -1229,7 +1104,7 @@ module.exports = {
     // If a `deployTo` object was passed to this method, return that,
     // otherwise the sole configured `deployTo` object. For bc;
     // newer code always passes an option.
-
+    
     self.resolveDeployTo = function(options) {
       return options.deployTo || self.deployTo[0];
     };
@@ -1269,14 +1144,6 @@ module.exports = {
       } else if (self.options.deployTo) {
         self.deployTo = [ self.options.deployTo ];
       }
-    };
-
-    self.enableCloudStatic = function(callback) {
-      self.cs = cloudStatic();
-      return self.cs.init({
-        db: self.apos.db,
-        uploadfs: self.apos.attachments.uploadfs
-      }, callback);
     };
 
   }

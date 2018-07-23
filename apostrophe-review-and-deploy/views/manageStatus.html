@@ -1,0 +1,5 @@
+{%- if data.value == 'Ready to Deploy' -%}
+  <button class="apos-button" data-apos-deploy>Deploy Now</button>
+{%- else -%}
+  {{ data.value }}
+{%- endif -%}
