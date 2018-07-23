@@ -171,7 +171,8 @@ module.exports = {
         json: true,
         body: {
           _id: _id,
-          locale: req.locale
+          locale: req.locale,
+          slug: req.slug
         }
       }, {
         deployTo: deployToArray[0]
@@ -598,9 +599,12 @@ module.exports = {
 
       self.route('post', 'url', self.deployPermissions, function(req, res) {
         req.locale = self.apos.launder.string(req.body.locale);
+        req.slug = self.apos.launder.string(req.body.slug);
+
         return self.apos.docs.find(req, {
-          _id: self.apos.launder.id(req.body._id)
-        }).permission(false).toObject(function(err, doc) {
+          workflowLocale: req.locale,
+          slug: req.slug
+        }).log(true).permission(false).toObject(function(err, doc) {
           if (err) {
             self.apos.utils.error(err);
             return res.send({
