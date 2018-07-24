@@ -2,23 +2,16 @@
   "id": "backstop_default",
   "viewports": [
     {
-      "label": "phone",
-      "width": 320,
-      "height": 480
-    },
-    {
       "label": "desktop",
-      "width": 1280,
-      "height": 800
+      "width": 1366,
+      "height": 768
     }
   ],
   "onBeforeScript": "puppet/onBefore.js",
   "onReadyScript": "puppet/onReady.js",
   "scenarios": [
     {
-      "label": "BackstopJS Homepage",
-      "url": "path/to/file",
-      "referenceUrl": "path/to/file",
+      "label": "Visual Diff",
       "readyEvent": "",
       "readySelector": "",
       "delay": 0,
