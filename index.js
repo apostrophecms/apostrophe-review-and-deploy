@@ -12,7 +12,7 @@ const backstop = require('backstopjs');
 const path = require('path');
 const cloudStatic = require('cloud-static');
 
-var backstopConfig = path.join(__dirname, 'backstop-config.json')
+var backstopConfig = path.join(__dirname, 'backstop-config.json');
 backstopConfig = JSON.parse(fs.readFileSync(backstopConfig));
 
 module.exports = {
@@ -114,6 +114,9 @@ module.exports = {
   },
 
   construct: function(self, options) {
+    backstopConfig.viewports = _.concat(backstopConfig.viewports, options.backstopConfig.viewports)
+    _.merge(backstopConfig.scenarios[0], options.backstopConfig.scenarios);
+
     var workflow = self.apos.modules['apostrophe-workflow'];
     self.excludeFromWorkflow = function() {
       workflow.excludeTypes.push(self.name);
