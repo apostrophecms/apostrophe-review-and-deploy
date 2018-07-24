@@ -38,6 +38,7 @@ apos.define('apostrophe-review-and-deploy', {
             apos.ui.globalBusy(false);
             apos.notify('The review is complete.', { status: 'success' });
             $('[data-apos-review-menu]').hide();
+            $('.apos-visual-diff').hide();
           } else {
             apos.ui.globalBusy(false);
             apos.notify('An error occurred during the review process.', { status: 'error' });
