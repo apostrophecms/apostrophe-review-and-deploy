@@ -114,8 +114,13 @@ module.exports = {
   },
 
   construct: function(self, options) {
-    backstopConfig.viewports = _.concat(backstopConfig.viewports, options.backstopConfig.viewports)
-    _.merge(backstopConfig.scenarios[0], options.backstopConfig.scenarios);
+    if (options.backstopConfig && options.backstopConfig.viewports) {
+      backstopConfig.viewports = _.concat(backstopConfig.viewports, options.backstopConfig.viewports)
+    }
+
+    if (options.backstopConfig && options.backstopConfig.scenarios) {
+      _.merge(backstopConfig.scenarios[0], options.backstopConfig.scenarios);
+    }
 
     var workflow = self.apos.modules['apostrophe-workflow'];
     self.excludeFromWorkflow = function() {
