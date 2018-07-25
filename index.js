@@ -12,9 +12,6 @@ const backstop = require('backstopjs');
 const path = require('path');
 const cloudStatic = require('cloud-static');
 
-var backstopConfig = path.join(__dirname, 'backstop-config.json');
-backstopConfig = JSON.parse(fs.readFileSync(backstopConfig));
-
 module.exports = {
   extend: 'apostrophe-pieces',
   name: 'apostrophe-review-and-deploy',
@@ -114,6 +111,9 @@ module.exports = {
   },
 
   construct: function(self, options) {
+    var backstopConfig = path.join(__dirname, 'backstop-config.json');
+    backstopConfig = JSON.parse(fs.readFileSync(backstopConfig));
+
     if (options.backstopConfig && options.backstopConfig.viewports) {
       backstopConfig.viewports = _.concat(backstopConfig.viewports, options.backstopConfig.viewports)
     }
@@ -143,7 +143,6 @@ module.exports = {
         req.backstopReport = self.apos.rootDir + "/data/backstop_data/html_report/index.html";
         req.backstopReportUrl = self.cs.getUrl('/site-review/report/html_report/index.html');
 
-        // backstopConfig.cookiePath = path.join(__dirname, "/backstop_data/engine_scripts/cookies.json");
         var backstopPaths = {
           "bitmaps_reference": self.apos.rootDir + "/data/backstop_data/bitmaps_reference",
           "bitmaps_test": self.apos.rootDir + "/data/backstop_data/bitmaps_test",
