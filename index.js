@@ -101,7 +101,6 @@ module.exports = {
     self.addRoutes();
     self.apos.pages.addAfterContextMenu(self.menu);
     self.apos.pages.addAfterContextMenu(self.visualDiff);
-    // add backstop to the view here
     self.addCsrfExceptions();
 
     self.pushAsset('script', 'visual-diff', {
