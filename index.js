@@ -114,7 +114,7 @@ module.exports = {
     backstopConfig = JSON.parse(fs.readFileSync(backstopConfig));
 
     if (options.backstopConfig && options.backstopConfig.viewports) {
-      backstopConfig.viewports = _.concat(backstopConfig.viewports, options.backstopConfig.viewports)
+      backstopConfig.viewports = _.concat(backstopConfig.viewports, options.backstopConfig.viewports);
     }
 
     if (options.backstopConfig && options.backstopConfig.scenarios) {

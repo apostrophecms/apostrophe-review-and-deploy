@@ -16,10 +16,13 @@
   display: none !important;
 }
 
-.apos-visual-diff {
+[data-apos-visual-diff] {
   position: absolute;
   bottom: 0;
-  height: 650px;
   z-index: -1;
   background: #fff;
+  iframe {
+    height: 650px;
+    width: 1000px;
+  }
 }
