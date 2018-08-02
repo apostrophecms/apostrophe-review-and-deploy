@@ -102,10 +102,8 @@ module.exports = {
     self.apos.pages.addAfterContextMenu(self.menu);
     self.apos.pages.addAfterContextMenu(self.visualDiff);
     self.addCsrfExceptions();
+    self.modifyVisualDiffFrame();
 
-    self.pushAsset('script', 'visual-diff', {
-      when: 'user'
-    });
     return self.ensureIndexes(callback);
   },
 
@@ -164,6 +162,14 @@ module.exports = {
       }).then(() => {
         // This isn't very unique, but it's impractical to review reports in parallel anyway
         return self.cs.syncFolder(self.apos.rootDir + "/data/backstop_data", "/site-review/report");
+      });
+    };
+
+    // Applies visual changes on the client-side after the backstop
+    // interface loads
+    self.modifyVisualDiffFrame = function() {
+      self.pushAsset('script', 'visual-diff', {
+        when: 'user'
       });
     };
 
