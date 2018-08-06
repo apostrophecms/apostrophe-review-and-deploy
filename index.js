@@ -133,7 +133,7 @@ module.exports = {
 
     self.generateReport = function(req) {
       var deployToArray = self.getDeployToArrayForCurrentLocale(req);
-      var context = req.data.page || req.data.piece;
+      var context = req.data.piece || req.data.page;
       return self.getProductionUrl(req, context).then((url) => {
         req.deployFromPath = context._url;
         req.deployToPath = url;
@@ -152,7 +152,6 @@ module.exports = {
 
         backstopConfig.scenarios[0].url = req.deployToPath;
         backstopConfig.scenarios[0].referenceUrl = req.deployFromPath;
-        console.log(backstopConfig.scenarios[0]);
         return backstop('reference', {
           config: backstopConfig
         });
@@ -626,7 +625,6 @@ module.exports = {
               status: 'notfound'
             });
           } else {
-            console.log('***** GOOD URL is: ' + doc._url);
             return res.send({
               status: 'ok',
               url: doc._url
@@ -657,8 +655,6 @@ module.exports = {
         // mark those as reviewed in order to reach the next
         // doc that does have a `_url`
         return cursor.limit(50).toArray().then(function(docs) {
-          console.log(docs[0]._id);
-          console.log('got a batch of ' + docs.length);
           var orphans;
           if (!docs.length) {
             return null;
@@ -667,13 +663,11 @@ module.exports = {
             return !doc._url;
           });
           if (orphans.length < docs.length) {
-            console.log('found a good doc');
             // A doc with a _url is present, deliver it
             return _.find(docs, function(doc) {
               return doc._url;
             });
           }
-          console.log('all orphan docs');
           // Mark some orphans as reviewed
           return self.apos.docs.db.update({
             _id: { $in: _.map(orphans, '_id') }
@@ -694,7 +688,6 @@ module.exports = {
             });
           })
           .then(function() {
-            console.log('marked all orphans trying again');
             return self.getNextDoc(req);
           });
         });
