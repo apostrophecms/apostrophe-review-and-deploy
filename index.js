@@ -135,7 +135,7 @@ module.exports = {
       var deployToArray = self.getDeployToArrayForCurrentLocale(req);
       var context = req.data.page || req.data.piece;
       return self.getProductionUrl(req, context).then((url) => {
-        req.deployFromPath = req.data.absoluteUrl;
+        req.deployFromPath = context._url;
         req.deployToPath = url;
         req.backstopReport = self.apos.rootDir + "/data/backstop_data/html_report/index.html";
         req.backstopReportUrl = self.cs.getUrl('/site-review/report/html_report/index.html');
@@ -152,6 +152,7 @@ module.exports = {
 
         backstopConfig.scenarios[0].url = req.deployToPath;
         backstopConfig.scenarios[0].referenceUrl = req.deployFromPath;
+        console.log(backstopConfig.scenarios[0]);
         return backstop('reference', {
           config: backstopConfig
         });
@@ -625,6 +626,7 @@ module.exports = {
               status: 'notfound'
             });
           } else {
+            console.log('***** GOOD URL is: ' + doc._url);
             return res.send({
               status: 'ok',
               url: doc._url
