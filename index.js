@@ -649,36 +649,53 @@ module.exports = {
     self.getNextDoc = function(req) {
       options = options || {};
       var cursor = self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).log(true).joins(false).areas(false);
-      return cursor.toObject()
-      .then(function(doc) {
-        if (!doc) {
-          return null;
-        }
-        if (!doc._url) {
-          // Skip anything without a URL
+      return self.getActiveReview(req).then(function(review) {
+        // Grab 50 at a time because some of them will be orphaned pieces
+        // without a `_url`, and we need to preemptively and efficiently
+        // mark those as reviewed in order to reach the next
+        // doc that does have a `_url`
+        return cursor.limit(50).toArray().then(function(docs) {
+          console.log(docs[0]._id);
+          console.log('got a batch of ' + docs.length);
+          var orphans;
+          if (!docs.length) {
+            return null;
+          }
+          orphans = _.filter(docs, function(doc) {
+            return !doc._url;
+          });
+          if (orphans.length < docs.length) {
+            console.log('found a good doc');
+            // A doc with a _url is present, deliver it
+            return _.find(docs, function(doc) {
+              return doc._url;
+            });
+          }
+          console.log('all orphan docs');
+          // Mark some orphans as reviewed
           return self.apos.docs.db.update({
-            _id: doc._id
+            _id: { $in: _.map(orphans, '_id') }
           }, {
             $set: {
               siteReviewApproved: true
             }
+          }, {
+            multi: true
           }).then(function() {
-            return self.getActiveReview(req)
-          })
-          .then(function(review) {
+            // Count the orphans as reviewed
             return self.apos.docs.db.update({
               _id: review._id
             }, {
               $inc: {
-                reviewed: 1
+                reviewed: orphans.length
               }
             });
           })
           .then(function() {
+            console.log('marked all orphans trying again');
             return self.getNextDoc(req);
           });
-        }
-        return doc;
+        });
       });
     };
 
@@ -1234,8 +1251,7 @@ module.exports = {
           'Authorization': 'Bearer ' + deployTo.apikey
         }
       }, requestOptions);
-      var url = deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-review-and-deploy/' + verb;
-      return request(deployTo.baseUrl + deployTo.prefix + '/modules/apostrophe-review-and-deploy/' + verb, requestOptions);
+      return request(deployTo.baseUrl + (deployTo.prefix || '') + '/modules/apostrophe-review-and-deploy/' + verb, requestOptions);
     };
 
     // If a `deployTo` object was passed to this method, return that,
