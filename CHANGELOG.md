@@ -1,3 +1,12 @@
+## 2.3.1
+
+Unit tests passing.
+
+* Pieces are considered context before pages, just like with workflow.
+* Correct URL generation for comparisons, bypasses issues with protocol-relative `baseUrl` settings.
+* Efficient algorithm to skip docs with no `_url`. Avoids appearance of outright failure when this takes many minutes on a large database.
+* `prefix` option no longer mandatory on deployment targets, treated as empty string if absent.
+
 ## 2.3.0
 
 Unit tests passing.
