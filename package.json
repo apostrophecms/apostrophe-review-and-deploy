@@ -20,7 +20,9 @@
   },
   "homepage": "https://github.com/punkave/apostrophe-review-and-deploy#readme",
   "dependencies": {
+    "backstopjs": "^3.0.0",
     "bson": "^1.0.4",
+    "cloud-static": "^1.0.0",
     "express-bearer-token": "^2.1.0",
     "lodash": "^4.17.4",
     "read-async-bson": "^0.1.2",
