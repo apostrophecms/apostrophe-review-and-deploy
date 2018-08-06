@@ -1,3 +1,9 @@
+## 2.3.0
+
+Unit tests passing.
+
+* Implemented backstop-based display of changes between preprod and live sites.
+
 ## 2.2.2
 
 Unit tests passing.
