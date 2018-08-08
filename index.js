@@ -959,138 +959,63 @@ module.exports = {
             }
           }
         );
-      })
-      .then(function() {
+      }).then(function() {
+        // Update attachment visibility based on what's gone and what's in the
+        // new import
+        return self.reflectLocaleSwapInAttachments(locale, locale + '-importing');
+      }).then(function() {
         // Rename locale-rollback-0 to locale-rollback-1, etc.
         var n = self.options.rollback || 0;
         return archiveNext();
         function archiveNext() {
-          var cleanStep;
           if (n === 0) {
             return;
           }
-          if (n === self.options.rollback) {
-            // If the max is 5 and rollback-5 already exists,
-            // we'll be dropping 4 on top of an existing 5,
-            // leading to collisions in the index. Remove
-            // the old 5 first
-            cleanStep = self.apos.docs.db.remove({
-              workflowLocale: locale + '-rollback-' + n
-            });
-          } else {
-            cleanStep = Promise.resolve(true);
-          }
-          return cleanStep
-          .then(function() {
-            return self.apos.docs.db.update(
-              {
-                workflowLocaleForPathIndex: locale + '-rollback-' + (n - 1)
-              }, {
-                $set: {
-                  workflowLocaleForPathIndex: locale + '-rollback-' + n
-                }
-              },
-              {
-                multi: true
-              }
-            )
-          })
-          .then(function() {
-            return self.apos.docs.db.update(
-              {
-                workflowLocale: locale + '-rollback-' + (n - 1)
-              }, {
-                $set: {
-                  workflowLocale: locale + '-rollback-' + n
-                }
-              },
-              {
-                multi: true
-              }
-            );
-          })
-          .then(function(r) {
+          return Promise.try(function() {
+            if (n === self.options.rollback) {
+              // If the max is 5 and rollback-5 already exists,
+              // we'll be dropping 4 on top of an existing 5,
+              // leading to collisions in the index. Remove
+              // the old 5 first
+              return self.removeLocale(locale + '-rollback-' + n);
+            }
+          }).then(function() {
+            return self.renameLocale(locale + '-rollback-' + (n - 1), locale + '-rollback-' + n);
+          }).then(function(r) {
             n--;
             return archiveNext();
           });
         }
-      })
-      .then(function() {
+      }).then(function() {
         // Purge stuff we no longer keep for rollback.
         //
         // In theory `rollback` could have been a really big number once
         // and set smaller later. In practice set a reasonable bound
         // so this is a single, fast call.
-        var locales = _.map(_.range(self.options.rollback, 100), function(i) {
+        var locales = _.map(_.range(self.options.rollback || 0, 100), function(i) {
           return locale + '-rollback-' + i
         });
         return self.apos.docs.db.remove({
           workflowLocale: { $in: locales }
         });
-      })
-      .then(function() {
+      }).then(function() {
         // Showtime. This has to be as fast as possible.
         //
         // If we're keeping old deployments for rollback,
         // rename the currently live locale to localename-rollback-0,
         // otherwise discard it
         if (self.options.rollback) {
-          return self.apos.docs.db.update({
-            workflowLocale: locale
-          },
-          {
-            $set: {
-              workflowLocale: locale + '-rollback-0'
-            }
-          }, {
-            multi: true
-          })
-          .then(function() {
-            // workflowLocaleForPathIndex is a separate property, not always present,
-            // so we are stuck with a second call
-            return self.apos.docs.db.update({
-              workflowLocaleForPathIndex: locale
-            },
-            {
-              $set: {
-                workflowLocaleForPathIndex: locale + '-rollback-0'
-              }
-            }, {
-              multi: true
-            })
-          });
+          return self.renameLocale(locale, locale + '-rollback-0');
         } else {
-          return self.apos.docs.remove({
-            workflowLocale: locale
-          });
+          self.removeLocale(locale);
         }
-      })
-      .then(function() {
+      }).then(function() {
         // Showtime, part 2.
         //
         // rename the temporary locale to be the live locale.
         // Do workflowLocaleForPathIndex first to minimize
         // possible inconsistent time
-        return self.apos.docs.db.update({
-          workflowLocaleForPathIndex: locale + '-importing'
-        }, {
-          $set: {
-            workflowLocaleForPathIndex: locale
-          }
-        }, {
-          multi: true
-        });
-      })
-      .then(function() {
-        return self.apos.docs.db.update({
-          workflowLocale: locale + '-importing'
-        }, {
-          $set: {
-            workflowLocale: locale
-          }
-        }, {
-          multi: true
-        });
+        return self.renameLocale(locale + '-importing', locale);
       });
 
       // Recursively replace all occurrences of the ids in this locale
@@ -1112,241 +1037,58 @@ module.exports = {
 
     };
 
-    // Returns promise that resolves when the current
-    // locale has been rolled back to the most recent
-    // previous deployment.
-    //
-    // The window in which a mix of old and new content may
-    // be visible is minimized via an algorithm similar
-    // to that used by `importLocale`.
-    //
-    // If no previous deployment is available,
-    // an error occurs.
-    //
-    // Permissions are not checked.
-
-    self.revertLocale = function(req) {
-      var locale = workflow.liveify(req.locale);
-
+    // TODO: methods it invokes (deal with both properties)
+    self.rollbackLocale = function(locale) {
       return Promise.try(function() {
-        // Remove any leftover failed attempt at a previous import
-        // so we don't get duplicate junk if this one succeeds
-        return self.apos.docs.db.remove({
-          workflowLocale: locale + '-importing'
-        });
-      })
-      .then(function() {
-        // read the file, import to temporary locale
-        var reader = Promise.promisify(require('read-async-bson'));
-        return reader(
-          { from: zin },
-          function(doc, callback) {
-            if (!version) {
-              // first object is metadata
-              version = doc.version;
-              if (typeof(version) !== 'number') {
-                return callback(new Error('The first BSON object in the file must contain version and ids properties'));
-              }
-              if (version < 1) {
-                return callback(new Error('Invalid version number'));
-              }
-              if (version > 1) {
-                return callback(new Error('This file came from a newer version of apostrophe-review-and-deploy, I don\'t know how to read it'));
-              }
-              ids = doc.ids;
-              if (!Array.isArray(ids)) {
-                return callback(new Error('The first BSON object in the file must contain version and ids properties'));
-              }
-              _.each(ids, function(id) {
-                idsToNew[id] = cuid();
-              });
-              return callback(null);
-            } else {
-              // Iterator, invoked once per doc
-              doc.workflowLocale = locale + '-importing';
-              if (doc.workflowLocaleForPathIndex) {
-                doc.workflowLocaleForPathIndex = doc.workflowLocale;
-              }
-              replaceIdsRecursively(doc);
-
-              return self.apos.docs.db.insert(doc, callback);
-            }
+        return self.apos.docs.db.findOne({ workflowLocale: locale + '-rollback-0' }).then(function(canary) {
+          if (!canary) {
+            throw new Error('notfound');
           }
-        );
-      })
-      .then(function() {
-        // Rename locale-rollback-0 to locale-rollback-1, etc.
-        var n = self.options.rollback || 0;
-        return archiveNext();
-        function archiveNext() {
-          return self.removeLocaleDeployment('-rollback-' + n);
-          var cleanStep;
-          if (n === 0) {
-            return;
-          }
-          if (n === self.options.rollback) {
-            // If the max is 5 and rollback-5 already exists,
-            // we'll be dropping 4 on top of an existing 5,
-            // leading to collisions in the index. Remove
-            // the old 5 first
-            cleanStep = self.apos.docs.db.remove({
-              workflowLocale: locale + '-rollback-' + n
-            });
-          } else {
-            cleanStep = Promise.resolve(true);
-          }
-          return cleanStep
-          .then(function() {
-            return self.apos.docs.db.update(
-              {
-                workflowLocaleForPathIndex: locale + '-rollback-' + (n - 1)
-              }, {
-                $set: {
-                  workflowLocaleForPathIndex: locale + '-rollback-' + n
-                }
-              },
-              {
-                multi: true
-              }
-            )
-          })
-          .then(function() {
-            return self.apos.docs.db.update(
-              {
-                workflowLocale: locale + '-rollback-' + (n - 1)
-              }, {
-                $set: {
-                  workflowLocale: locale + '-rollback-' + n
-                }
-              },
-              {
-                multi: true
-              }
-            );
-          })
-          .then(function(r) {
-            n--;
-            return archiveNext();
-          });
-        }
-      })
-      .then(function() {
-        // Purge stuff we no longer keep for rollback.
-        //
-        // In theory `rollback` could have been a really big number once
-        // and set smaller later. In practice set a reasonable bound
-        // so this is a single, fast call.
-        var locales = _.map(_.range(self.options.rollback, 100), function(i) {
-          return locale + '-rollback-' + i
         });
-        return self.apos.docs.db.remove({
-          workflowLocale: { $in: locales }
+      }).then(function() {
+        return self.renameLocale(locale, locale + '-rolling-back');
+      }).then(function() {
+        // Update attachment visibility before we make the content visible
+        return self.reflectLocaleSwapInAttachments(locale + '-rolling-back', locale + '-rollback-0');
+      }).then(function() {
+        // Showtime (content becomes visible)
+        return self.renameLocale(locale + '-rollback-0', locale);
+      }).then(function() {
+        return Promise.mapSeries(_.range(1, self.options.rollback - 1), function(i) {
+          return self.renameLocale(locale + '-rollback-' + i + 1, locale + '-rollback-' + i);
         });
-      })
-      .then(function() {
-        // Showtime. This has to be as fast as possible.
-        //
-        // If we're keeping old deployments for rollback,
-        // rename the currently live locale to localename-rollback-0,
-        // otherwise discard it
-        if (self.options.rollback) {
-          return self.apos.docs.db.update({
-            workflowLocale: locale
-          },
-          {
-            $set: {
-              workflowLocale: locale + '-rollback-0'
-            }
-          }, {
-            multi: true
-          })
-          .then(function() {
-            // workflowLocaleForPathIndex is a separate property, not always present,
-            // so we are stuck with a second call
-            return self.apos.docs.db.update({
-              workflowLocaleForPathIndex: locale
-            },
-            {
-              $set: {
-                workflowLocaleForPathIndex: locale + '-rollback-0'
-              }
-            }, {
-              multi: true
-            })
-          });
-        } else {
-          return self.apos.docs.remove({
-            workflowLocale: locale
-          });
-        }
-      })
-      .then(function() {
-        // Showtime, part 2.
-        //
-        // rename the temporary locale to be the live locale.
-        // Do workflowLocaleForPathIndex first to minimize
-        // possible inconsistent time
-        return self.apos.docs.db.update({
-          workflowLocaleForPathIndex: locale + '-importing'
-        }, {
-          $set: {
-            workflowLocaleForPathIndex: locale
-          }
-        }, {
-          multi: true
-        });
-      })
-      .then(function() {
-        return self.apos.docs.db.update({
-          workflowLocale: locale + '-importing'
-        }, {
-          $set: {
-            workflowLocale: locale
-          }
-        }, {
-          multi: true
-        });
+      }).then(function() {
+        return self.removeLocale(locale + '-rolling-back');
       });
+    };
 
-      // TODO: methods it invokes (deal with both properties),
-      // effects on attachment visibility
-      self.rollbackLocale = function(locale) {
-        return Promise.try(function() {
-          return self.apos.docs.db.findOne({ workflowLocale: locale + '-rollback-0' }).then(function(canary) {
-            if (!canary) {
-              throw new Error('notfound');
-            }
-          });
-        }).then(function() {
-          return self.renameLocale(locale, locale + '-rolling-back');
-        }).then(function() {
-          return self.renameLocale(locale + '-rollback-0', locale);
-        }).then(function() {
-          return Promise.mapSeries(_.range(1, self.options.rollback - 1), function(i) {
-            return self.renameLocale(locale + '-rollback-' + i + 1, locale + '-rollback-' + i);
-          });
-        }).then(function() {
-          return self.removeLocale(locale + '-rolling-back');
-        });
-      };
-
-      // Recursively replace all occurrences of the ids in this locale
-      // found in the given doc with their new ids per `idsToNew`. This prevents
-      // _id conflicts on insert, even though old data is still in the database
-      // under other locale names
-
-      function replaceIdsRecursively(doc) {
-        _.each(doc, function(val, key) {
-          if ((typeof(val) === 'string') && (val.length < 100)) {
-            if (idsToNew[val]) {
-              doc[key] = idsToNew[val];
-            }
-          } else if (val && (typeof(val) === 'object')) {
-            replaceIdsRecursively(val);
+    // Renames a locale in the database. Called by
+    // rollbackLocale.
+    self.renameLocale = function(oldName, newName) {
+      return self.apos.docs.db.update({
+        workflowLocale: oldName
+      },
+      {
+        $set: {
+          workflowLocale: newName
+        }
+      }, {
+        multi: true
+      })
+      .then(function() {
+        // workflowLocaleForPathIndex is a separate property, not always present,
+        // so we are stuck with a second call
+        return self.apos.docs.db.update({
+          workflowLocaleForPathIndex: oldName
+        },
+        {
+          $set: {
+            workflowLocaleForPathIndex: newName
           }
-        });
-      }
-
+        }, {
+          multi: true
+        })
+      });
     };
 
     // Deploys attachments to the host specified by the
@@ -1464,6 +1206,78 @@ module.exports = {
           fs.unlinkSync(temp);
         }
       });
+    };
+
+    // Given an old locale that is being archived for rollback
+    // or removed due to rollback, and a new locale that is
+    // coming into play, update the docIds and trashDocIds
+    // properties of all attachments mentioned in either
+    // then update the availability of attachments accordingly.
+    // Returns a promise.
+
+    self.reflectLocaleSwapInAttachments = function(oldLocale, newLocale) {
+      return Promise.try(function() {
+        return swapOut();
+      }).then(function() {
+        return swapIn();
+      }).then(function() {
+        return Promise.promisify(self.apos.attachments.updatePermissions)();
+      });
+      function swapOut() {
+        var lastId = '';
+        return nextBatch();
+        function nextBatch() {
+          return self.apos.docs.db.find({ workflowLocale: oldLocale, _id: { $gte: lastId } }, { _id: 1 }).sort({ _id: 1 }).limit(1000).then(function(docs) {
+            if (!docs.length) {
+              return;            
+            }
+            var ids = _.map(docs, '_id');
+            return self.apos.attachments.db.update({
+              $pull: {
+                docIds: ids,
+                trashDocIds: ids
+              }
+            }, {
+              multi: true
+            }).then(function() {
+              lastId = _.last(ids);
+              return nextBatch();
+            });
+          });
+        }
+      }
+      function swapIn() {
+        var lastId = '';
+        return nextBatch();
+        function nextBatch() {
+          return self.apos.docs.db.find({ workflowLocale: newLocale, _id: { $gte: lastId } }).sort({ _id: 1 }).limit(100).then(function(docs) {
+            if (!docs.length) {
+              return;            
+            }
+            var forDocIds = [];
+            var forTrashDocIds = [];
+            _.each(docs, function(doc) {
+              var attachments = self.apos.attachments.all(doc);
+              if (doc.trash) {
+                forTrashDocIds = forTrashDocIds.concat(_.map(attachments, '_id'));
+              } else {
+                forDocIds = forDocIds.concat(_.map(attachments, '_id'));
+              }
+            });
+            return self.apos.attachments.db.update({
+              $addToSet: {
+                docIds: { $in: forDocIds },
+                trashDocIds: { $in: forTrashDocIds }
+              }
+            }, {
+              multi: true
+            }).then(function() {
+              lastId = _.last(docs)._id;
+              return nextBatch();
+            });
+          });
+        }
+      }
     };
 
     // Invoke a remote API. A simple wrapper around request-promise.
