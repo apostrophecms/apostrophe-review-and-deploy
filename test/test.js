@@ -282,7 +282,7 @@ describe('apostrophe-review-and-deploy', function() {
 
   it('should export attachments', function() {
     var siteReview = apos.modules['apostrophe-review-and-deploy'];
-    return siteReview.deployAttachments()
+    return siteReview.deployAttachments('fr')
     .then(function() {
       return apos2.attachments.db.findOne({ _id: attachment._id })
     })

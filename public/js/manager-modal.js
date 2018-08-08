@@ -17,7 +17,7 @@ apos.define('apostrophe-review-and-deploy-manager-modal', {
         return false;
       });
       self.$el.on('click', '[data-apos-rollback]', function() {
-        if (confirm('This will undo the most recent successful deployment of this locale. Are you sure?')) {
+        if (confirm('This will undo the most recent successful deployment of this locale. This operation cannot be undone. You might prefer to deploy a new review instead. Are you sure?')) {
           self.api('rollback', {}, function(data) {
             apos.modules['apostrophe-jobs'].progress(data.jobId, { change: self.options.name });
           }, function(err) {

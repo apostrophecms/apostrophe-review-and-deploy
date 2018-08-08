@@ -389,9 +389,6 @@ module.exports = {
       // requests.
 
       self.route('post', 'attachments', self.deployPermissions, function(req, res) {
-        if (!Array.isArray(req.body.attachments)) {
-          return res.status(400).send('bad request');
-        }
         var incoming = req.body.attachments;
         if (!Array.isArray(incoming)) {
           return res.status(400).send('bad request');
@@ -401,8 +398,8 @@ module.exports = {
             return res.status(400).send('bad request');
           }
         });
+        var missing, changed;
         return Promise.try(function() {
-          var missing, changed;
           return self.apos.attachments.db.find({ _id: { $in: _.map(incoming, '_id') }}).toArray().then(function(actual) {
             missing = _.differenceBy(incoming, actual, '_id');
             var found = _.keyBy(missing);
@@ -414,7 +411,7 @@ module.exports = {
             });
           });
         }).then(function() {
-          return Promise.map(results.missing, function(attachment) {
+          return Promise.map(missing, function(attachment) {
             // Because these must be recomputed based on the locales we have here, not there
             attachment.docIds = [];
             attachment.trashDocIds = [];
@@ -422,7 +419,7 @@ module.exports = {
             return self.apos.attachments.db.insert(attachment);
           }, { concurrency: 5 })
         }).then(function() {
-          return Promise.map(results.changed, function(attachment) {
+          return Promise.map(changed, function(attachment) {
             return self.apos.attachments.db.update({
               _id: attachment._id
             }, {
@@ -460,6 +457,7 @@ module.exports = {
           }
         } catch (e) {
           console.error(e);
+          console.error('error in attachments/upload');
           return res.status(400).send('bad request');
         }
         return Promise.try(function() {
@@ -600,10 +598,10 @@ module.exports = {
               deployTo: deployTo
             };
             return Promise.try(function() {
-              return self.remoteApi('rollback', {
+              return self.remoteApi('rollback-api', {
                 method: 'POST',
                 json: true,
-                formData: {
+                body: {
                   locale: locale
                 }
               }, options);
@@ -617,17 +615,34 @@ module.exports = {
         }
       });
 
+      // api route to actually carry out a rollback on this specific server.
+      self.route('post', 'rollback-api', self.deployPermissions, function(req, res) {
+        var locale = self.apos.launder.string(req.body.locale);
+        if (!locale) {
+          console.error("bad input in rollback route");
+          return res.status(400).send('bad request');
+        }
+        return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
+          label: 'Rolling Back'
+        });
+        function run(req, reporting) {
+          return self.rollbackLocale(locale);
+        }
+      });
+
+
       self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
         var file = req.files && req.files.file;
         if (!(locale && file)) {
+          console.error("bad input in locale route");
           return res.status(400).send('bad request');
         }
         return self.apos.modules['apostrophe-jobs'].runNonBatch(req, run, {
           label: 'Receiving'
         });
         function run(req, reporting) {
-          return self.importLocale(req, file.path);
+          return self.importLocale(req.locale);
         }
       });
 
@@ -638,6 +653,7 @@ module.exports = {
       self.route('post', 'locale/progress', self.deployPermissions, function(req, res) {
         var jobId = self.apos.launder.string(req.body.jobId);
         if (!jobId) {
+          console.error('missing jobId');
           return res.status(400).send('bad request');
         }
         return self.apos.modules['apostrophe-jobs'].db.findOne({ _id: jobId })
@@ -688,6 +704,7 @@ module.exports = {
         list.push(self.action + '/deploy');
         list.push(self.action + '/attachments');
         list.push(self.action + '/attachments/upload');
+        list.push(self.action + '/rollback-api');
       });
     };
 
@@ -1165,15 +1182,13 @@ module.exports = {
 
     self.deployAttachments = function(locale, options) {
       options = options || {};
-      var deployTo = self.resolveDeployTo(options);
-      var remote, local;
-      var last = '';
+
       // To avoid RAM and network issues, we'll fetch this many docs at a time
       // and build up an array of attachments to be sent, and we'll also use this
       // threshold to decide we have enough attachments to send (but of course
       // we flush one last batch at the end)
       var batchSize = 100;
-      var last = false;
+      var lastId = '';
       var seen = {};
       var attachments = [];
 
@@ -1184,12 +1199,15 @@ module.exports = {
       });
 
       function nextBatch() {
+        var last = false;
         return Promise.try(function() {
-          return self.apos.docs.db.find({ workflowLocale: locale }).limit(batchSize);
+          return self.apos.docs.db.find({ workflowLocale: locale, _id: { $gt: lastId } }).sort({ _id: 1 }).limit(batchSize).toArray();
         }).then(function(batch) {
           if (!batch.length) {
             last = true;
+            return;
           }
+          lastId = _.last(batch)._id;
           attachments = attachments.concat(_.flatten(_.map(batch, self.apos.attachments.all)));
           attachments = _.filter(attachments, function(attachment) {
             return !seen[attachment._id];
@@ -1208,14 +1226,16 @@ module.exports = {
       }
 
       function sendBatch() {
+        var actual;
         return Promise.try(function() {
-          return self.apos.attachments.db.find({ _id: { $in: _.map(attachments, '_id') } });
-        }).then(function(actual) {
+          return self.apos.attachments.db.find({ _id: { $in: _.map(attachments, '_id') } }).toArray();
+        }).then(function(_actual) {
+          actual = _actual;
           // We got the full attachment objects from the db, now forget the batch
           // so a new batch can be started
           attachments = [];
           // Pass the actual attachment info to the receiver
-          return self.remoteApi('attachment', {
+          return self.remoteApi('attachments', {
             method: 'POST',
             json: true,
             body: {
@@ -1227,7 +1247,9 @@ module.exports = {
           // just supply the missing files
           var needed = info.missing.concat(info.changed);
           return _.filter(actual, function(attachment) {
-            return _.find(needed, attachment._id);
+            return _.find(needed, function(n) {
+              return n === attachment._id;
+            });
           });
         }).then(function(needed) {
           var paths = [];
@@ -1323,18 +1345,25 @@ module.exports = {
         var lastId = '';
         return nextBatch();
         function nextBatch() {
-          return self.apos.docs.db.find({ workflowLocale: oldLocale, _id: { $gte: lastId } }, { _id: 1 }).sort({ _id: 1 }).limit(1000).then(function(docs) {
+          return self.apos.docs.db.find({ workflowLocale: oldLocale, _id: { $gt: lastId } }, { _id: 1 }).sort({ _id: 1 }).limit(1000).toArray().then(function(docs) {
             if (!docs.length) {
               return;            
             }
             var ids = _.map(docs, '_id');
-            return self.apos.attachments.db.update({
-              $pull: {
-                docIds: ids,
-                trashDocIds: ids
+            return Promise.try(function() {
+              if (!ids.length) {
+                return;
               }
-            }, {
-              multi: true
+              return self.apos.attachments.db.update({
+              },
+              {
+                $pullAll: {
+                  docIds: ids,
+                  trashDocIds: ids
+                }
+              }, {
+                multi: true
+              });  
             }).then(function() {
               lastId = _.last(ids);
               return nextBatch();
@@ -1344,33 +1373,52 @@ module.exports = {
       }
       function swapIn() {
         var lastId = '';
+        var last = false;
         return nextBatch();
         function nextBatch() {
-          return self.apos.docs.db.find({ workflowLocale: newLocale, _id: { $gte: lastId } }).sort({ _id: 1 }).limit(100).then(function(docs) {
-            if (!docs.length) {
-              return;            
-            }
-            var forDocIds = [];
-            var forTrashDocIds = [];
-            _.each(docs, function(doc) {
-              var attachments = self.apos.attachments.all(doc);
-              if (doc.trash) {
-                forTrashDocIds = forTrashDocIds.concat(_.map(attachments, '_id'));
+          return Promise.try(function() {
+            return self.apos.docs.db.find({ workflowLocale: newLocale, _id: { $gt: lastId } }).sort({ _id: 1 }).limit(100).toArray().then(function(docs) {
+              var attachmentUpdates = [];
+              _.each(docs, function(doc) {
+                _.each(self.apos.attachments.all(doc), function(attachment) {
+                  attachmentUpdates.push({
+                    _id: attachment._id,
+                    docId: doc._id,
+                    docTrash: doc.trash
+                  });
+                });
+              });
+              if (!docs.length) {
+                last = true;
               } else {
-                forDocIds = forDocIds.concat(_.map(attachments, '_id'));
+                lastId = _.last(docs)._id;
               }
+              return attachmentUpdates;
             });
-            return self.apos.attachments.db.update({
-              $addToSet: {
-                docIds: { $in: forDocIds },
-                trashDocIds: { $in: forTrashDocIds }
+          }).then(function(attachmentUpdates) {
+            return Promise.map(attachmentUpdates, function(au) {
+              if (au.docTrash) {
+                return self.apos.attachments.db.update({
+                  _id: au._id
+                }, {
+                  $addToSet: {
+                    trashDocIds: au.docId
+                  }
+                });
+              } else {
+                return self.apos.attachments.db.update({
+                  _id: au._id
+                }, {
+                  $addToSet: {
+                    docIds: au.docId
+                  }
+                });
               }
-            }, {
-              multi: true
-            }).then(function() {
-              lastId = _.last(docs)._id;
+            }, { concurrency: 5 });
+          }).then(function() {
+            if (!last) {
               return nextBatch();
-            });
+            }
           });
         }
       }
@@ -1393,7 +1441,8 @@ module.exports = {
           'Authorization': 'Bearer ' + deployTo.apikey
         }
       }, requestOptions);
-      return request(deployTo.baseUrl + (deployTo.prefix || '') + '/modules/apostrophe-review-and-deploy/' + verb, requestOptions);
+      var url = deployTo.baseUrl + (deployTo.prefix || '') + '/modules/apostrophe-review-and-deploy/' + verb;
+      return request(url, requestOptions);
     };
 
     // If a `deployTo` object was passed to this method, return that,
@@ -1450,10 +1499,10 @@ module.exports = {
     };
 
     var superGetManagerControls = self.getManagerControls;
-    self.getManagerControls = function() {
+    self.getManagerControls = function(req) {
       var controls = superGetManagerControls(req);
       var index = _.findIndex(controls, { action: 'cancel' });
-      controls.splice((index !== undefined) ? index : 0, 0, {
+      controls.splice((index !== undefined) ? (index + 1) : 0, 0, {
         type: 'minor',
         label: 'Roll Back',
         action: 'rollback'
