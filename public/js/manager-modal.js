@@ -16,6 +16,16 @@ apos.define('apostrophe-review-and-deploy-manager-modal', {
         }
         return false;
       });
+      self.$el.on('click', '[data-apos-rollback]', function() {
+        if (confirm('This will undo the most recent successful deployment of this locale. Are you sure?')) {
+          self.api('rollback', {}, function(data) {
+            apos.modules['apostrophe-jobs'].progress(data.jobId, { change: self.options.name });
+          }, function(err) {
+            apos.notify('An error occurred initiating the rollback.', { type: 'error' });
+          });
+        }
+        return false;
+      });
       return superBeforeShow(callback);
     };
   }
