@@ -149,7 +149,7 @@ describe('apostrophe-review-and-deploy', function() {
             {
               slug: '/about',
               type: 'testPage',
-              title: 'About'
+              title: 'About Two'
             }
           ],
           types: [
@@ -201,6 +201,19 @@ describe('apostrophe-review-and-deploy', function() {
       afterListen: function(err) {
         done();
       }
+    });
+  });
+
+  it('should fail to roll back when we have no deployments', function() {
+    var siteReview = apos2.modules['apostrophe-review-and-deploy'];
+    // we don't want to make it into the first "then" function
+    var bad = false;
+    return siteReview.rollbackLocale('fr').then(function(r) {
+      bad = true;
+    }).catch(function(e) {
+      assert(e);
+    }).then(function() {
+      assert(!bad);
     });
   });
 
@@ -289,6 +302,116 @@ describe('apostrophe-review-and-deploy', function() {
     .then(function(received) {
       assert(received);
       assert(fs.existsSync(__dirname + '/public/uploads2' + apos2.attachments.url(received, { uploadfsPath: true })));
+    });
+  });
+
+  it('prepare a second export', function() {
+    var req = apos.tasks.getReq({ locale: 'fr' });
+
+    return apos.docs.db.update({
+      slug: '/about',
+      workflowLocale: 'fr',
+    }, {
+      $set: {
+        title: 'About-Ish'
+      }
+    }).then(function() {
+      return apos.modules['apostrophe-review-and-deploy'].exportLocale(req);
+    }).then(function(filename) {
+      assert(filename);
+      var fs = require('fs');
+      assert(fs.existsSync(filename));
+      exported = filename;
+    });
+  });
+  
+  it('should import the locale a second time', function() {
+    var req = apos2.tasks.getReq({ locale: 'fr' });
+    return apos2.modules['apostrophe-review-and-deploy'].importLocale(req, exported)
+    .then(function() {
+      return apos2.docs.db.count({ workflowLocale: 'fr' })
+    }).then(function(n) {
+      assert(n > 0);
+      // Great, but did the modification come through?
+      return apos2.docs.db.findOne({
+        workflowLocale: 'fr',
+        slug: '/about'
+      });
+    }).then(function(_about) {
+      about = _about;
+      assert(about.title === 'About-Ish');
+    });
+  });
+
+  it('should successfully roll back when we have two deployments', function() {
+    var siteReview = apos2.modules['apostrophe-review-and-deploy'];
+    return Promise.try(function() {
+      return apos2.docs.db.findOne({ workflowLocale: 'fr-rollback-0' });
+    }).then(function(canary) {
+      assert(canary);
+      return apos2.docs.db.findOne({ workflowLocale: 'fr-rollback-1' });
+    }).then(function(canary) {
+      assert(canary);
+      return apos2.docs.db.findOne({ workflowLocale: 'fr-rollback-2' });
+    }).then(function(canary) {
+      assert(!canary);
+    }).then(function() {
+      return siteReview.rollbackLocale('fr');
+    }).then(function() {
+      return apos2.docs.db.findOne({
+        workflowLocale: 'fr',
+        slug: '/about'
+      });
+    }).then(function(about) {
+      // Reverted
+      assert(about.title === 'About');
+    });
+  });
+
+  it('should successfully roll back again with just one deployment left, to the initial state of the second site', function() {
+    var siteReview = apos2.modules['apostrophe-review-and-deploy'];
+    return Promise.try(function() {
+      return apos2.docs.db.findOne({ workflowLocale: 'fr-rollback-0' });
+    }).then(function(canary) {
+      assert(canary);
+      return apos2.docs.db.findOne({ workflowLocale: 'fr-rollback-1' });
+    }).then(function(canary) {
+      assert(!canary);
+      return apos2.docs.db.findOne({ workflowLocale: 'fr-rollback-2' });
+    }).then(function(canary) {
+      assert(!canary);
+    }).then(function() {
+      return siteReview.rollbackLocale('fr');
+    }).then(function() {
+      return apos2.docs.db.findOne({
+        workflowLocale: 'fr',
+        slug: '/about'
+      })
+    }).then(function(about) {
+      // Reverted
+      assert(about.title === 'About Two');
+    });
+  });
+
+  it('should refuse to roll back again since we are now out of rollbacks', function() {
+    var siteReview = apos2.modules['apostrophe-review-and-deploy'];
+    var bad = false;
+    return siteReview.rollbackLocale('fr').then(function() {
+      assert(false);
+      bad = true;
+    }).catch(function(err) {
+      assert(err);
+    }).then(function() {
+      if (bad) {
+        assert(false);
+      }
+      return apos2.docs.db.findOne({
+        workflowLocale: 'fr',
+        slug: '/about'
+      });
+    }).then(function(about) {
+      // No change
+      assert(about.title === 'About Two');
     });
   });
 

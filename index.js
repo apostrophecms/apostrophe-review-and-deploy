@@ -1117,7 +1117,7 @@ module.exports = {
         return self.renameLocale(locale + '-rollback-0', locale);
       }).then(function() {
         return Promise.mapSeries(_.range(0, self.options.rollback - 1), function(i) {
-          return self.renameLocale(locale + '-rollback-' + i + 1, locale + '-rollback-' + i);
+          return self.renameLocale(locale + '-rollback-' + (i + 1), locale + '-rollback-' + i);
         });
       }).then(function() {
         return self.removeLocale(locale + '-rolling-back');
