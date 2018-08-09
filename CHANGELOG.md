@@ -1,3 +1,10 @@
+## 2.4.0
+
+Unit tests passing.
+
+* Rollback is now supported. The rollback button appears with the "Cancel" and "Finished" button in the "Manage Reviews" modal. It is not a per-review button because it would be misleading, as it can only roll back the most recent review deployed, and cannot know for certain that it even came from the same source server.
+* Attachment permissions are now handled properly. That is, whether they are available for access by the browser is correctly computed based on the docs present on the server deployed to, without making assumptions that only hold on the sending server.
+
 ## 2.3.1
 
 Unit tests passing.
