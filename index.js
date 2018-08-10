@@ -726,7 +726,7 @@ module.exports = {
     // Returns a promise for the next doc ready for review.
     self.getNextDoc = function(req) {
       options = options || {};
-      var cursor = self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).log(true).joins(false).areas(false);
+      var cursor = self.apos.docs.find(req, { siteReviewRank: { $exists: 1 }, siteReviewApproved: null }).sort({ siteReviewRank: 1 }).joins(false).areas(false);
       return self.getActiveReview(req).then(function(review) {
         // Grab 50 at a time because some of them will be orphaned pieces
         // without a `_url`, and we need to preemptively and efficiently
