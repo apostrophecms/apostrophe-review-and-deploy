@@ -400,7 +400,7 @@ module.exports = {
         });
         var missing, changed;
         return Promise.try(function() {
-          return self.apos.attachments.db.find({ _id: { $in: _.map(incoming, '_id') }}).toArray().then(function(actual) {
+          return self.apos.attachments.db.findWithProjection({ _id: { $in: _.map(incoming, '_id') }}).toArray().then(function(actual) {
             missing = _.differenceBy(incoming, actual, '_id');
             var found = _.keyBy(missing);
             var common = _.filter(incoming, function(i) {
@@ -805,7 +805,7 @@ module.exports = {
       }
       order = _.uniq(order);
       order = _.invert(order);
-      return self.apos.docs.db.find({ workflowLocale: piece.locale, trash: { $ne: true }, published: { $ne: false } }, { type: 1 }).toArray(function(err, docs) {
+      return self.apos.docs.db.findWithProjection({ workflowLocale: piece.locale, trash: { $ne: true }, published: { $ne: false } }, { type: 1 }).toArray(function(err, docs) {
         // Convert type to the rank of that type
         _.each(docs, function(doc) {
           doc.sortRank = order[doc.type];
@@ -910,7 +910,7 @@ module.exports = {
       var ids;
       fileOut = fs.createWriteStream(filename);
       out.pipe(fileOut);
-      return self.apos.docs.db.find({ workflowLocale: locale }, { _id: 1 }).toArray()
+      return self.apos.docs.db.findWithProjection({ workflowLocale: locale }, { _id: 1 }).toArray()
       .then(function(docs) {
         ids = _.map(docs, '_id');
         // Metadata
@@ -929,7 +929,7 @@ module.exports = {
         if (!batch.length) {
           return;
         }
-        return self.apos.docs.db.find({
+        return self.apos.docs.db.findWithProjection({
           workflowLocale: locale,
           _id: { $in: batch }
         })
@@ -1201,7 +1201,7 @@ module.exports = {
       function nextBatch() {
         var last = false;
         return Promise.try(function() {
-          return self.apos.docs.db.find({ workflowLocale: locale, _id: { $gt: lastId } }).sort({ _id: 1 }).limit(batchSize).toArray();
+          return self.apos.docs.db.findWithProjection({ workflowLocale: locale, _id: { $gt: lastId } }).sort({ _id: 1 }).limit(batchSize).toArray();
         }).then(function(batch) {
           if (!batch.length) {
             last = true;
@@ -1228,7 +1228,7 @@ module.exports = {
       function sendBatch() {
         var actual;
         return Promise.try(function() {
-          return self.apos.attachments.db.find({ _id: { $in: _.map(attachments, '_id') } }).toArray();
+          return self.apos.attachments.db.findWithProjection({ _id: { $in: _.map(attachments, '_id') } }).toArray();
         }).then(function(_actual) {
           actual = _actual;
           // We got the full attachment objects from the db, now forget the batch
@@ -1345,7 +1345,7 @@ module.exports = {
         var lastId = '';
         return nextBatch();
         function nextBatch() {
-          return self.apos.docs.db.find({ workflowLocale: oldLocale, _id: { $gt: lastId } }, { _id: 1 }).sort({ _id: 1 }).limit(1000).toArray().then(function(docs) {
+          return self.apos.docs.db.findWithProjection({ workflowLocale: oldLocale, _id: { $gt: lastId } }, { _id: 1 }).sort({ _id: 1 }).limit(1000).toArray().then(function(docs) {
             if (!docs.length) {
               return;            
             }
@@ -1377,7 +1377,7 @@ module.exports = {
         return nextBatch();
         function nextBatch() {
           return Promise.try(function() {
-            return self.apos.docs.db.find({ workflowLocale: newLocale, _id: { $gt: lastId } }).sort({ _id: 1 }).limit(100).toArray().then(function(docs) {
+            return self.apos.docs.db.findWithProjection({ workflowLocale: newLocale, _id: { $gt: lastId } }).sort({ _id: 1 }).limit(100).toArray().then(function(docs) {
               var attachmentUpdates = [];
               _.each(docs, function(doc) {
                 _.each(self.apos.attachments.all(doc), function(attachment) {

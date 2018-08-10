@@ -1,3 +1,10 @@
+## 2.4.1
+
+Unit tests passing.
+
+* `findWithProjection` used consistently when working directly with MongoDB, for compatibility with the 3.x driver (the 2.x driver will continue to work too).
+* Dev dependency explicitly requires a version of Apostrophe with `findWithProjection`.
+
 ## 2.4.0
 
 Unit tests passing.

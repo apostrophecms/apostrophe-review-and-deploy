@@ -1,6 +1,6 @@
 {
   "name": "apostrophe-review-and-deploy",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "Require an approval process for the entire site, or one locale, then push the site's content from \"pre-production\" to production on another host",
   "main": "index.js",
   "scripts": {
@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "apostrophe-workflow": "^2.5.0",
-    "apostrophe": "^2.0.0",
+    "apostrophe": "^2.62.0",
     "mocha": "^4.1.0"
   }
 }
