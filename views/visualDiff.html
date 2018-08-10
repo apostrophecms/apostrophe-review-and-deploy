@@ -1,4 +1,4 @@
-{% if (data.workflowMode == 'live') and data.siteReview.review %}
+{% if (data.workflowMode == 'live') and data.siteReview.review and data.report %}
   <div class="apos-visual-diff" data-apos-visual-diff>
     <iframe src="{{ data.report }}"></iframe>
     <!-- In this iframe is where backstop.js puts the report output - backstop_data/html_report/index.html -->

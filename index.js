@@ -226,7 +226,11 @@ module.exports = {
         // knows about req because it exists in the enclosure.
 
         if (review && (req.data.page || req.data.piece)) {
-          return self.generateReport(req);
+          return self.generateReport(req).catch(function(e) {
+            // no backstop report available, probably
+            // has not been synced before so the workflowGuid
+            // does not correspond, don't panic
+          });
         } else {
           return null;
         }
@@ -528,28 +532,7 @@ module.exports = {
             })
             .then(function(result) {
               reporting.good();
-              return monitorUntilDone();
-
-              function monitorUntilDone() {
-                return self.remoteApi('locale/progress', {
-                  method: 'POST',
-                  json: true,
-                  body: {
-                    jobId: result.jobId
-                  }
-                }, options)
-                .then(function(job) {
-                  if (job.status === 'completed') {
-                    return;
-                  } else if (job.status === 'failed') {
-                    throw new Error('upload of locale failed');
-                  } else {
-                    return Promise.delay(250).then(function() {
-                      return monitorUntilDone();
-                    });
-                  }
-                });
-              }
+              return self.monitorJobUntilDone(result.jobId, _.assign({ error: 'upload of locale failed' }, options));
             })
             .finally(function(r) {
               if (filename) {
@@ -576,6 +559,29 @@ module.exports = {
           });
         }
       });
+
+      // Monitors a remote job until it is done
+
+      self.monitorJobUntilDone = function(jobId, options) {
+        return self.remoteApi('job/progress', {
+          method: 'POST',
+          json: true,
+          body: {
+            jobId: jobId
+          }
+        }, options)
+        .then(function(job) {
+          if (job.status === 'completed') {
+            return;
+          } else if (job.status === 'failed') {
+            throw new Error(options.error || 'An error occurred');
+          } else {
+            return Promise.delay(250).then(function() {
+              return self.monitorJobUntilDone(jobId, options);
+            });
+          }
+        });
+      };
 
       // UI route to initiate a rollback. Replies with `{ jobId: nnn }`,
       // suitable for calling `apos.modules['apostrophe-jobs'].progress(jobId)`.
@@ -605,6 +611,8 @@ module.exports = {
                   locale: locale
                 }
               }, options);
+            }).then(function(result) {
+              return self.monitorJobUntilDone(result.jobId, _.assign({ error: 'rollback of locale failed' }, options));
             }).then(function() {
               reporting.good();
             });
@@ -616,6 +624,9 @@ module.exports = {
       });
 
       // api route to actually carry out a rollback on this specific server.
+      // Like the locale route, it responds with job information that can be
+      // used to poll the `job/progress` route.
+
       self.route('post', 'rollback-api', self.deployPermissions, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
         if (!locale) {
@@ -630,6 +641,9 @@ module.exports = {
         }
       });
 
+      // Backend API to actually deploy a locale file to a
+      // specific target server. Replies with job information
+      // suitable for polling the `job/progress` route.
 
       self.route('post', 'locale', self.deployPermissions, self.apos.middleware.files, function(req, res) {
         var locale = self.apos.launder.string(req.body.locale);
@@ -642,15 +656,16 @@ module.exports = {
           label: 'Receiving'
         });
         function run(req, reporting) {
-          return self.importLocale(req.locale);
+          return self.importLocale(locale, file.path);
         }
       });
 
       // The regular job-monitoring route is CSRF protected and
-      // it renders markup we don't care about. Provide our own
+      // it renders markup we don't care about when we're monitoring
+      // a long-running job from within a larger job. Provide our own
       // access to the job object. TODO: think about whether
       // this should be a standard route of `apostrophe-jobs`.
-      self.route('post', 'locale/progress', self.deployPermissions, function(req, res) {
+      self.route('post', 'job/progress', self.deployPermissions, function(req, res) {
         var jobId = self.apos.launder.string(req.body.jobId);
         if (!jobId) {
           console.error('missing jobId');
@@ -700,7 +715,7 @@ module.exports = {
       self.apos.on('csrfExceptions', function(list) {
         list.push(self.action + '/locale');
         list.push(self.action + '/url');
-        list.push(self.action + '/locale/progress');
+        list.push(self.action + '/job/progress');
         list.push(self.action + '/deploy');
         list.push(self.action + '/attachments');
         list.push(self.action + '/attachments/upload');
@@ -967,8 +982,8 @@ module.exports = {
     //
     // Permissions are not checked.
 
-    self.importLocale = function(req, filename) {
-      var locale = workflow.liveify(req.locale);
+    self.importLocale = function(locale, filename) {
+      var locale = workflow.liveify(locale);
       var zin = zlib.createGunzip();
       var fileIn;
       var ids;
