@@ -253,7 +253,7 @@ describe('apostrophe-review-and-deploy', function() {
   
   it('should import a locale on request', function() {
     var req = apos2.tasks.getReq({ locale: 'fr' });
-    return apos2.modules['apostrophe-review-and-deploy'].importLocale(req, exported)
+    return apos2.modules['apostrophe-review-and-deploy'].importLocale('fr', exported)
     .then(function() {
       return apos2.docs.db.count({ workflowLocale: 'fr' })
     })
@@ -327,7 +327,7 @@ describe('apostrophe-review-and-deploy', function() {
   
   it('should import the locale a second time', function() {
     var req = apos2.tasks.getReq({ locale: 'fr' });
-    return apos2.modules['apostrophe-review-and-deploy'].importLocale(req, exported)
+    return apos2.modules['apostrophe-review-and-deploy'].importLocale('fr', exported)
     .then(function() {
       return apos2.docs.db.count({ workflowLocale: 'fr' })
     }).then(function(n) {
