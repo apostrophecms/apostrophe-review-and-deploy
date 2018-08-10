@@ -4,6 +4,9 @@ Unit tests passing.
 
 * `findWithProjection` used consistently when working directly with MongoDB, for compatibility with the 3.x driver (the 2.x driver will continue to work too).
 * Dev dependency explicitly requires a version of Apostrophe with `findWithProjection`.
+* Tolerate backstop not working, as will be common if the receiving db is brand new and has no workflowGuids that could be in sync with us yet.
+* Monitor rollbacks correctly, poll the jobs.
+* Fixed a recently introduced bug in deploy.
 
 ## 2.4.0
 
