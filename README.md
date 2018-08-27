@@ -34,7 +34,7 @@ Click "Save" to begin the review.
 
 **From this point on, users may not make any modifications to the live version of the content for this locale.** Draft content may still be edited, but commits and operations such as movement in the page tree are **blocked for the duration of the review.** This ensures that a document cannot be modified between the time of its approval and the time the rest of the content is fully approved and deployed.
 
-**Once the review is in progress, admins will see "Approve" and "Reject" buttons for review purposes when viewing pages in live mode.** 
+**Once the review is in progress, admins will see "Approve" and "Reject" buttons for review purposes when viewing pages in live mode.**
 
 Since the purpose of the review is to check how documents appear "in context" on a page,  approving a page approves all of the content both on that page and on any related documents, such as images, whose content is directly visible on it via widgets.
 
@@ -74,7 +74,7 @@ Any reviews for the same locale already in progress or "ready to deploy" are mar
 
 ### Completing a Review
 
-When a review is completed, it will be marked as such in "Manage Reviews." Read on to see how you can take advantage of this module's deployment features to "deploy" the approved content to another server at this point. 
+When a review is completed, it will be marked as such in "Manage Reviews." Read on to see how you can take advantage of this module's deployment features to "deploy" the approved content to another server at this point.
 
 ## Deploying Content
 
@@ -173,6 +173,35 @@ You may optionally specify certain locales to be deployed to each server. Note t
 Currently previous content is correctly migrated to a "rollback locale" for later restoration, but the UI for rolling it back does not yet exist (TODO: implement this).
 
 The number of past deployments kept for rollback is controlled by the `rollback` option, which defaults to `5`.
+
+## Visual Diff with Backstop.js
+
+During the page review process you will be presented with a pixel-by-pixel visual difference comparison, comparing the page's currently deployed state with the new state to be deployed. We use the [Backstop.js](https://github.com/garris/BackstopJS) library to enable this functionality.
+
+Our Backstop.js settings can be viewed here - [https://github.com/apostrophecms/apostrophe-review-and-deploy/blob/master/backstop-config.json]. There is one default `viewports` setting configured in our Backstop.js implementation. This initial viewport is labeled “desktop” and set to a width of 1366 pixels and height of 768 pixels. You can add any number of `viewports` in addition to this default. When you add viewports you will see how each page appears at that size during the review process. In a sample configuration below we add a "mobile" view port size with a width of 600 pixels and height of 800 pixels.
+
+All other Backstop.js scenario configurations can be overwritten. Below is an example of a reasonable use case modifying a couple values. We use the `selectors` parameter to only diff content within the `content` class (e.g. excluding header, footer, and navigation content), and we increase the `misMatchThreshold` to `0.3`.
+
+```
+  'apostrophe-review-and-deploy': {
+    ...
+    backstopConfig: {
+      viewports: [
+        {
+          label: "mobile",
+          width: 600,
+          height: 800
+        }
+      ],
+      scenarios: {
+        selectors: [
+          ".content"
+        ],
+        misMatchThreshold: 0.3
+      }
+    }
+  }
+```
 
 ## Implementation notes
 
