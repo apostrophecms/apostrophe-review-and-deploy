@@ -11,7 +11,12 @@
     "url": "git+https://github.com/punkave/apostrophe-review-and-deploy.git"
   },
   "keywords": [
-    "apostrophe"
+    "apostrophe",
+    "apostrophecms",
+    "apostrophe-cms",
+    "cms",
+    "content management",
+    "content management system"
   ],
   "author": "P'unk Avenue LLC",
   "license": "MIT",
