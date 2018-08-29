@@ -1,3 +1,10 @@
+## 2.4.2
+
+Unit tests passing.
+
+* Fixed jQuery 3 incompatibility.
+* Added docs on configuring `backstop` to change the reporting.
+
 ## 2.4.1
 
 Unit tests passing.
