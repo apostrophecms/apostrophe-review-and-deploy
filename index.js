@@ -21,7 +21,7 @@ module.exports = {
   rollback: 5,
   sendAttachmentConcurrency: 3,
   moogBundle: {
-    modules: [ 'apostrophe-review-and-deploy-workflow' ],
+    modules: [ 'apostrophe-review-and-deploy-workflow', 'apostrophe-review-and-deploy-global' ],
     directory: 'lib/modules'
   },
 
@@ -378,7 +378,7 @@ module.exports = {
       });
 
       // Accept information about attachments as `req.body.attachments`.
-      // Replies with an object with a `needed` propery, containing the
+      // Replies with an object with a `needed` property, containing the
       // ids of the attachments that are new or different (crops). Ignores differences in
       // `docIds` and `trashDocIds` as ids differ between sender and
       // receiver, not all locales exist on both, and the `reflectLocaleSwapInAttachments`
@@ -1077,23 +1077,31 @@ module.exports = {
           workflowLocale: { $in: locales }
         });
       }).then(function() {
-        // Showtime. This has to be as fast as possible.
-        //
-        // If we're keeping old deployments for rollback,
-        // rename the currently live locale to localename-rollback-0,
-        // otherwise discard it
-        if (self.options.rollback) {
-          return self.renameLocale(locale, locale + '-rollback-0');
-        } else {
-          self.removeLocale(locale);
-        }
-      }).then(function() {
-        // Showtime, part 2.
-        //
-        // rename the temporary locale to be the live locale.
-        // Do workflowLocaleForPathIndex first to minimize
-        // possible inconsistent time
-        return self.renameLocale(locale + '-importing', locale);
+        var req = self.apos.tasks.getReq({ locale: locale });
+        // Showtime: grab a global lock on the locale in question.
+        // While we have that lock, do the things that aren't atomic
+        // as quickly as we can
+        return self.apos.global.whileBusy(function() {
+          return Promise.try(function() {
+            // Showtime, part 2: 
+            //
+            // If we're keeping old deployments for rollback,
+            // rename the currently live locale to localename-rollback-0,
+            // otherwise discard it
+            if (self.options.rollback) {
+              return self.renameLocale(locale, locale + '-rollback-0');
+            } else {
+              return self.removeLocale(locale);
+            }
+          }).then(function() {
+            // Showtime, part 3:
+            //
+            // rename the temporary locale to be the live locale.
+            // Do workflowLocaleForPathIndex first to minimize
+            // possible inconsistent time
+            return self.renameLocale(locale + '-importing', locale);
+          });
+        }, { locale: locale });
       });
 
       // Recursively replace all occurrences of the ids in this locale
