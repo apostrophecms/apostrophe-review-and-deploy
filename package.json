@@ -1,6 +1,6 @@
 {
   "name": "apostrophe-review-and-deploy",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "description": "Require an approval process for the entire site, or one locale, then push the site's content from \"pre-production\" to production on another host",
   "main": "index.js",
   "scripts": {

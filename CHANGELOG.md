@@ -1,3 +1,10 @@
+## 2.4.3
+
+Unit tests passing.
+
+* Use the new `whileBusy` mechanism to eliminate any time period in which
+users might see a mix of old and new content.
+
 ## 2.4.2
 
 Unit tests passing.
